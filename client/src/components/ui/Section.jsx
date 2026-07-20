@@ -6,7 +6,7 @@ export function Section({ id, className, containerClassName, children, ...props 
   return (
     <section
       id={id}
-      className={cn('relative py-20 sm:py-24 lg:py-28', className)}
+      className={cn('relative py-14 sm:py-18 lg:py-22', className)}
       {...props}
     >
       <div className={cn('mx-auto w-full max-w-6xl px-5 sm:px-8', containerClassName)}>
@@ -62,12 +62,12 @@ export function SectionHeading({
     <Reveal className={cn('max-w-3xl', centered && 'mx-auto text-center', className)}>
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
 
-      <h2 className="mt-5 text-[clamp(1.9rem,4vw,3rem)] text-balance">{title}</h2>
+      <h2 className="mt-4 text-[clamp(1.75rem,3.6vw,2.6rem)] text-balance">{title}</h2>
 
       {description && (
         <p
           className={cn(
-            'mt-4 text-[17px] leading-relaxed text-muted text-pretty',
+            'mt-3.5 text-[16px] leading-relaxed text-muted text-pretty',
             centered ? 'mx-auto max-w-2xl' : 'max-w-2xl',
           )}
         >

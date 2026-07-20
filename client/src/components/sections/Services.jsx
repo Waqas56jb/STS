@@ -90,7 +90,7 @@ export function Services() {
         description="Each one works on its own, or together as a single system that never drops a conversation — whichever suits how your business actually operates."
       />
 
-      <div className="mt-16 flex flex-col gap-20 lg:gap-28">
+      <div className="mt-12 flex flex-col gap-14 lg:gap-20">
         {services.map((service, index) => (
           <ServiceRow key={service.id} service={service} index={index} />
         ))}

@@ -12,144 +12,239 @@ import { cn } from '../../lib/cn'
 import { Button, ExternalButton } from '../ui/Button'
 import { Reveal } from '../ui/Reveal'
 import { Section, SectionHeading } from '../ui/Section'
-import { CheckIcon, Icon, WhatsAppIcon } from '../icons'
+import { CheckIcon, Icon, SparkleIcon, WhatsAppIcon } from '../icons'
 
 const accents = {
-  whatsapp: { chip: 'bg-whatsapp/10 text-whatsapp-dark', ring: 'ring-whatsapp/25' },
-  instagram: { chip: 'bg-instagram/10 text-instagram', ring: 'ring-instagram/25' },
-  voice: { chip: 'bg-voice/10 text-voice', ring: 'ring-voice/25' },
-  brand: { chip: 'bg-brand-soft text-brand', ring: 'ring-brand/25' },
+  whatsapp: { chip: 'bg-whatsapp/10 text-whatsapp-dark', dot: 'text-whatsapp' },
+  instagram: { chip: 'bg-instagram/10 text-instagram', dot: 'text-instagram' },
+  voice: { chip: 'bg-voice/10 text-voice', dot: 'text-voice' },
+  brand: { chip: 'bg-brand-soft text-brand', dot: 'text-brand' },
 }
 
-/** Big price with the currency and billing period. */
-function Price({ value, className }) {
+/** Price block. `dark` inverts it for the highlighted card. */
+function Price({ value, dark }) {
   return (
-    <p className={cn('flex items-baseline gap-1.5', className)}>
-      <span className="font-display text-[34px] leading-none font-extrabold text-ink">
+    <div className="flex items-baseline gap-1.5">
+      <span
+        className={cn(
+          'font-display text-[38px] leading-none font-extrabold tracking-tight',
+          dark ? 'text-white' : 'text-ink',
+        )}
+      >
         {formatPrice(value)}
       </span>
-      <span className="text-[14px] font-semibold text-muted">{currency}</span>
-      <span className="text-[13px] text-muted-2">/ month</span>
-    </p>
+      <span
+        className={cn(
+          'text-[15px] font-bold',
+          dark ? 'text-blue-200' : 'text-brand',
+        )}
+      >
+        {currency}
+      </span>
+      <span className={cn('text-[13px]', dark ? 'text-blue-200/70' : 'text-muted-2')}>
+        / month
+      </span>
+    </div>
   )
 }
 
-/* ---------------- Standalone tier card ---------------- */
+/** Feature row with a circular tick. */
+function Feature({ children, dark }) {
+  return (
+    <li className="flex items-start gap-2.5">
+      <span
+        className={cn(
+          'mt-0.5 grid size-4.5 shrink-0 place-items-center rounded-full',
+          dark ? 'bg-white/15 text-white' : 'bg-brand-soft text-brand',
+        )}
+      >
+        <CheckIcon className="size-3" />
+      </span>
+      <span
+        className={cn(
+          'text-[13.5px] leading-snug',
+          dark ? 'text-blue-100/85' : 'text-muted',
+        )}
+      >
+        {children}
+      </span>
+    </li>
+  )
+}
 
-function TierCard({ tier, unit, accent }) {
+/**
+ * Shared card shell.
+ *
+ * The highlighted tier renders on navy with a glow so it reads as the
+ * recommended option at a glance, rather than relying on a badge alone.
+ */
+function PlanCard({ highlighted, badge, children }) {
   return (
     <div
       className={cn(
-        'relative flex h-full flex-col rounded-2xl border bg-white p-6 transition-all duration-400 ease-signal',
-        tier.popular
-          ? cn('border-brand/40 ring-2 card-shadow-lg', accent.ring)
-          : 'border-line hover:border-brand/30 hover:card-shadow',
+        'relative flex h-full flex-col rounded-2xl p-6 transition-all duration-500 ease-signal',
+        highlighted
+          ? 'bg-gradient-to-b from-navy-2 to-navy text-white shadow-[0_24px_60px_-18px_rgb(29_78_216/0.55)] hover:-translate-y-1.5 hover:shadow-[0_32px_70px_-18px_rgb(29_78_216/0.7)]'
+          : 'border border-line bg-white hover:-translate-y-1.5 hover:border-brand/30 hover:card-shadow-lg',
       )}
     >
-      {tier.popular && (
-        <span className="absolute -top-3 left-6 rounded-full bg-brand px-3 py-1 text-[11px] font-bold tracking-wide text-white uppercase">
-          Most popular
+      {badge && (
+        <span
+          className={cn(
+            'absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3.5 py-1',
+            'text-[10.5px] font-bold tracking-[0.1em] whitespace-nowrap uppercase',
+            highlighted
+              ? 'bg-gradient-to-r from-brand-light to-accent text-navy'
+              : 'bg-brand text-white',
+          )}
+        >
+          {badge}
         </span>
       )}
+      {children}
+    </div>
+  )
+}
 
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="font-display text-[17px] font-bold">{tier.name}</h4>
-          <p className="mt-1 text-[13px] text-muted">
-            <span className="font-semibold text-ink">{tier.volume}</span> {unit}
-          </p>
-        </div>
-      </div>
+/* ---------------- Standalone tier ---------------- */
+
+function TierCard({ tier, unit, accent }) {
+  const dark = Boolean(tier.popular)
+
+  return (
+    <PlanCard highlighted={dark} badge={tier.popular && 'Most popular'}>
+      <h4
+        className={cn(
+          'font-display text-[18px] font-bold',
+          dark ? 'text-white' : 'text-ink',
+        )}
+      >
+        {tier.name}
+      </h4>
+
+      <p className={cn('mt-1 text-[13px]', dark ? 'text-blue-200/80' : 'text-muted')}>
+        <span className={dark ? 'font-bold text-white' : 'font-bold text-ink'}>
+          {tier.volume}
+        </span>{' '}
+        {unit}
+      </p>
 
       {tier.note && (
-        <span className={cn('mt-3 self-start rounded-full px-2.5 py-1 text-[11.5px] font-semibold', accent.chip)}>
+        <span
+          className={cn(
+            'mt-3 self-start rounded-full px-2.5 py-1 text-[11px] font-semibold',
+            dark ? 'bg-white/12 text-blue-100' : accent.chip,
+          )}
+        >
           {tier.note}
         </span>
       )}
 
-      <Price value={tier.price} className="mt-5" />
+      <div className={cn('mt-5 border-t pt-5', dark ? 'border-white/15' : 'border-line')}>
+        <Price value={tier.price} dark={dark} />
+      </div>
 
       <ul className="mt-5 flex flex-1 flex-col gap-2.5">
         {tier.features.map((feature) => (
-          <li key={feature} className="flex gap-2.5 text-[13.5px] text-muted">
-            <CheckIcon className="mt-0.5 size-4 shrink-0 text-brand" />
+          <Feature key={feature} dark={dark}>
             {feature}
-          </li>
+          </Feature>
         ))}
       </ul>
 
       <Button
         href="#request"
-        variant={tier.popular ? 'primary' : 'outline'}
+        variant={dark ? 'light' : 'outline'}
         size="md"
         fullWidth
         className="mt-6"
       >
         Request this plan
       </Button>
-    </div>
+    </PlanCard>
   )
 }
 
-/* ---------------- Bundle tier card ---------------- */
+/* ---------------- Bundle tier ---------------- */
 
-function BundleCard({ tier, featured }) {
+function BundleCard({ tier }) {
+  const dark = Boolean(tier.popular)
   const saved = savings(tier)
   const percent = savingsPercent(tier)
 
   return (
-    <div
-      className={cn(
-        'relative flex h-full flex-col rounded-2xl border p-6 transition-all duration-400 ease-signal',
-        tier.popular
-          ? 'border-brand/40 ring-2 ring-brand/25 card-shadow-lg'
-          : 'border-line hover:border-brand/30 hover:card-shadow',
-        featured ? 'bg-white' : 'bg-white',
-      )}
-    >
-      {tier.popular && (
-        <span className="absolute -top-3 left-6 rounded-full bg-brand px-3 py-1 text-[11px] font-bold tracking-wide text-white uppercase">
-          Best value
-        </span>
-      )}
+    <PlanCard highlighted={dark} badge={tier.popular && 'Best value'}>
+      <h4
+        className={cn(
+          'font-display text-[18px] font-bold',
+          dark ? 'text-white' : 'text-ink',
+        )}
+      >
+        {tier.name}
+      </h4>
+      <p
+        className={cn(
+          'mt-1 text-[12.5px] leading-snug',
+          dark ? 'text-blue-200/75' : 'text-muted-2',
+        )}
+      >
+        {tier.includes}
+      </p>
 
-      <h4 className="font-display text-[17px] font-bold">{tier.name}</h4>
-      <p className="mt-1 text-[12.5px] leading-snug text-muted-2">{tier.includes}</p>
-
-      <div className="mt-5">
-        <div className="flex items-center gap-2.5">
-          <span className="text-[14px] text-muted-2 line-through">
+      <div className={cn('mt-5 border-t pt-5', dark ? 'border-white/15' : 'border-line')}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              'text-[13.5px] line-through',
+              dark ? 'text-blue-200/60' : 'text-muted-2',
+            )}
+          >
             {formatPrice(tier.separate)} {currency}
           </span>
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11.5px] font-bold text-green-700">
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-[11px] font-bold',
+              dark
+                ? 'bg-gradient-to-r from-brand-light to-accent text-navy'
+                : 'bg-green-100 text-green-700',
+            )}
+          >
             Save {percent}%
           </span>
         </div>
-        <Price value={tier.price} className="mt-1.5" />
-        <p className="mt-1.5 text-[12.5px] font-medium text-green-700">
+
+        <div className="mt-2">
+          <Price value={tier.price} dark={dark} />
+        </div>
+
+        <p
+          className={cn(
+            'mt-2 text-[12.5px] font-semibold',
+            dark ? 'text-blue-200' : 'text-green-700',
+          )}
+        >
           You save {formatPrice(saved)} {currency} every month
         </p>
       </div>
 
       <ul className="mt-5 flex flex-1 flex-col gap-2.5">
         {tier.features.map((feature) => (
-          <li key={feature} className="flex gap-2.5 text-[13.5px] text-muted">
-            <CheckIcon className="mt-0.5 size-4 shrink-0 text-brand" />
+          <Feature key={feature} dark={dark}>
             {feature}
-          </li>
+          </Feature>
         ))}
       </ul>
 
       <Button
         href="#request"
-        variant={tier.popular ? 'primary' : 'outline'}
+        variant={dark ? 'light' : 'outline'}
         size="md"
         fullWidth
         className="mt-6"
       >
         Request this bundle
       </Button>
-    </div>
+    </PlanCard>
   )
 }
 
@@ -168,11 +263,11 @@ export function Pricing() {
       <SectionHeading
         eyebrow="Pricing"
         title="Straightforward monthly pricing."
-        description={`Every plan is billed monthly in ${currency}, includes your dashboard, and comes with full setup done for you. Bundles cost less than buying the same services separately.`}
+        description={`Billed monthly in ${currency}. Every plan includes your dashboard and full setup. Bundles cost less than the same services bought separately.`}
       />
 
       {/* View switch */}
-      <Reveal className="mt-10 flex justify-center">
+      <Reveal className="mt-8 flex justify-center">
         <div
           role="tablist"
           aria-label="Pricing view"
@@ -203,28 +298,28 @@ export function Pricing() {
 
       {/* ---------------- Bundles ---------------- */}
       {view === 'bundles' && (
-        <div key="bundles" className="mt-14 flex animate-rise flex-col gap-16">
+        <div key="bundles" className="mt-12 flex animate-rise flex-col gap-14">
           {bundles.map((bundle) => (
             <div key={bundle.id}>
               <Reveal className="flex flex-col items-center text-center">
-                <span className="grid size-12 place-items-center rounded-2xl bg-brand text-white">
+                <span className="grid size-12 place-items-center rounded-2xl bg-gradient-to-br from-brand-light to-brand text-white shadow-[0_10px_26px_-10px] shadow-brand/60">
                   <Icon name={bundle.icon} className="size-6" />
                 </span>
-                <h3 className="mt-4 text-[clamp(1.4rem,2.4vw,1.8rem)]">
+                <h3 className="mt-4 text-[clamp(1.3rem,2.2vw,1.65rem)]">
                   {bundle.name}
-                  <span className="ml-2 font-body text-[15px] font-medium text-muted">
+                  <span className="ml-2 font-body text-[14.5px] font-medium text-muted">
                     {bundle.subtitle}
                   </span>
                 </h3>
-                <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted">
+                <p className="mt-2.5 max-w-xl text-[14.5px] leading-relaxed text-muted">
                   {bundle.description}
                 </p>
               </Reveal>
 
-              <div className="mt-9 grid gap-5 md:grid-cols-3">
+              <div className="mt-9 grid gap-5 md:grid-cols-3 md:items-stretch">
                 {bundle.tiers.map((tier, index) => (
-                  <Reveal key={tier.name} delay={index * 90} className="h-full">
-                    <BundleCard tier={tier} featured={bundle.featured} />
+                  <Reveal key={tier.name} delay={index * 80} className="h-full">
+                    <BundleCard tier={tier} />
                   </Reveal>
                 ))}
               </div>
@@ -235,7 +330,7 @@ export function Pricing() {
 
       {/* ---------------- Standalone ---------------- */}
       {view === 'standalone' && (
-        <div key="standalone" className="mt-14 flex animate-rise flex-col gap-16">
+        <div key="standalone" className="mt-12 flex animate-rise flex-col gap-14">
           {standalonePlans.map((plan) => {
             const accent = accents[plan.accent] ?? accents.brand
 
@@ -250,15 +345,17 @@ export function Pricing() {
                   >
                     <Icon name={plan.icon} className="size-6" />
                   </span>
-                  <h3 className="mt-4 text-[clamp(1.4rem,2.4vw,1.8rem)]">{plan.name}</h3>
-                  <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted">
+                  <h3 className="mt-4 text-[clamp(1.3rem,2.2vw,1.65rem)]">
+                    {plan.name}
+                  </h3>
+                  <p className="mt-2.5 max-w-xl text-[14.5px] leading-relaxed text-muted">
                     {plan.blurb}
                   </p>
                 </Reveal>
 
-                <div className="mt-9 grid gap-5 md:grid-cols-3">
+                <div className="mt-9 grid gap-5 md:grid-cols-3 md:items-stretch">
                   {plan.tiers.map((tier, index) => (
-                    <Reveal key={tier.name} delay={index * 90} className="h-full">
+                    <Reveal key={tier.name} delay={index * 80} className="h-full">
                       <TierCard tier={tier} unit={plan.unit} accent={accent} />
                     </Reveal>
                   ))}
@@ -270,27 +367,33 @@ export function Pricing() {
       )}
 
       {/* Footnote + help CTA */}
-      <Reveal className="mt-16" delay={120}>
-        <div className="flex flex-col items-center gap-5 rounded-2xl border border-line bg-white px-6 py-8 text-center card-shadow">
-          <h3 className="text-[20px]">Not sure which plan fits?</h3>
-          <p className="max-w-xl text-[14.5px] leading-relaxed text-muted">
-            Tell us roughly how many messages or calls you handle each month and
-            we&apos;ll recommend the right tier — including whether a bundle
-            saves you money.
-          </p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <ExternalButton href={whatsappLink()} variant="whatsapp" size="md">
-              <WhatsAppIcon className="size-4" />
-              Ask on WhatsApp
-            </ExternalButton>
-            <Button href="#request" variant="outline" size="md">
-              Request access
-            </Button>
+      <Reveal className="mt-14" delay={100}>
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-navy-2 to-navy px-6 py-9 text-center">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-24 left-1/2 size-72 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgb(59_130_246/0.35),transparent_70%)] blur-2xl"
+          />
+          <div className="relative flex flex-col items-center gap-4">
+            <SparkleIcon className="size-7 text-cyan-300" />
+            <h3 className="text-[21px] text-white">Not sure which plan fits?</h3>
+            <p className="max-w-xl text-[14.5px] leading-relaxed text-blue-100/85">
+              Tell us roughly how many messages or calls you handle each month
+              and we&apos;ll recommend the right tier, including whether a
+              bundle saves you money.
+            </p>
+            <div className="mt-1 flex flex-wrap justify-center gap-3">
+              <ExternalButton href={whatsappLink()} variant="whatsapp" size="md">
+                <WhatsAppIcon className="size-4" />
+                Ask on WhatsApp
+              </ExternalButton>
+              <Button href="#request" variant="light" size="md">
+                Request access
+              </Button>
+            </div>
+            <p className="mt-1 text-[12.5px] text-blue-200/70">
+              All prices in {currency}, billed monthly. No long-term contract.
+            </p>
           </div>
-          <p className="text-[12.5px] text-muted-2">
-            All prices in {currency}, billed monthly. No long-term contract —
-            change or cancel between billing cycles.
-          </p>
         </div>
       </Reveal>
     </Section>

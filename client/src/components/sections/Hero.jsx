@@ -3,12 +3,12 @@ import { photos } from '../../data/images'
 import { whatsappLink } from '../../lib/whatsapp'
 import { cn } from '../../lib/cn'
 import { Button, ExternalButton } from '../ui/Button'
-import { Eyebrow } from '../ui/Section'
 import {
   ArrowRightIcon,
-  CheckIcon,
+  ChevronDownIcon,
   InstagramIcon,
   PhoneIcon,
+  SparkleIcon,
   WhatsAppIcon,
 } from '../icons'
 
@@ -18,136 +18,166 @@ const channels = [
   { label: 'Phone calls', icon: PhoneIcon },
 ]
 
-const assurances = ['Official Meta API', 'Setup done for you', 'No long contract']
+/**
+ * Renders text word by word so each one can fade, lift, and unblur in
+ * sequence.
+ *
+ * The gradient class is applied to every word span rather than a shared
+ * parent: `background-clip: text` only paints the element that owns the
+ * background, so a parent gradient would leave these child spans
+ * transparent and the text invisible.
+ */
+function AnimatedWords({ text, startDelay = 0, step = 60, className }) {
+  const words = text.split(' ')
+
+  return words.map((word, index) => (
+    <span
+      key={`${word}-${index}`}
+      className={cn('inline-block animate-word-in', className)}
+      style={{ animationDelay: `${startDelay + index * step}ms` }}
+    >
+      {word}
+      {index < words.length - 1 && ' '}
+    </span>
+  ))
+}
 
 export function Hero() {
   return (
-    <section className="relative isolate overflow-hidden bg-navy">
+    <section className="relative isolate flex min-h-svh flex-col items-center justify-center overflow-hidden bg-navy px-5 pt-24 pb-10 sm:px-8 sm:pt-28">
       {/* ---------- Background photograph ---------- */}
       <img
         src={photos.hero}
         alt=""
         aria-hidden="true"
         fetchPriority="high"
-        className="absolute inset-0 -z-20 size-full object-cover object-center opacity-45"
+        className="absolute inset-0 -z-30 size-full object-cover object-center"
       />
 
-      {/* Navy wash so white type stays readable over the photo */}
+      <div aria-hidden="true" className="absolute inset-0 -z-20 bg-navy/70" />
+
+      {/* Centre spotlight so the headline sits in the brightest area */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 -z-10 bg-gradient-to-br from-navy via-navy/90 to-navy-2/85"
+        className="absolute inset-0 -z-20 bg-[radial-gradient(ellipse_60%_50%_at_50%_45%,rgb(29_78_216/0.32),transparent_70%)]"
+      />
+
+      {/* Drifting colour bloom */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/4 left-1/2 -z-20 h-[36rem] w-[min(36rem,100vw)] -translate-x-1/2 animate-shine rounded-full bg-[radial-gradient(circle,rgb(103_232_249/0.16),transparent_65%)] blur-3xl"
+      />
+
+      {/* Vignette + fade into the white section below */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_center,transparent_45%,rgb(6_22_52/0.5)_100%)]"
       />
       <div
         aria-hidden="true"
-        className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_70%_20%,rgb(59_130_246/0.28),transparent_60%)]"
-      />
-      {/* Fade into the white section below */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 -z-10 h-32 bg-gradient-to-b from-transparent to-white"
+        className="absolute inset-x-0 bottom-0 -z-10 h-28 bg-gradient-to-b from-transparent to-white"
       />
 
-      <div className="mx-auto w-full max-w-6xl px-5 pt-32 pb-28 sm:px-8 sm:pt-40 lg:pt-44 lg:pb-36">
-        <div className="max-w-3xl">
-          <div className="animate-rise">
-            <Eyebrow tone="dark">AI automation for customer conversations</Eyebrow>
-          </div>
+      {/* ---------- Centred content ---------- */}
+      <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center text-center">
+        {/* Badge */}
+        <span
+          className="inline-flex animate-rise items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-1.5 text-[10px] font-medium tracking-[0.16em] text-blue-100 uppercase backdrop-blur-md sm:text-[11px]"
+          style={{ animationDelay: '60ms' }}
+        >
+          <SparkleIcon className="size-3.5 text-cyan-300" />
+          AI automation for customer conversations
+        </span>
 
-          <h1
-            className="mt-6 animate-rise text-[clamp(2.4rem,6vw,4.2rem)] text-white text-balance"
-            style={{ animationDelay: '80ms' }}
-          >
-            Every customer conversation,{' '}
-            <span className="text-gradient-light">answered by AI</span> — in one
-            dashboard.
-          </h1>
+        {/* Headline */}
+        <h1 className="mt-4 text-[clamp(1.7rem,5.4vw,3.75rem)] leading-[1.1] text-white sm:mt-5">
+          <AnimatedWords text="Every customer conversation," startDelay={140} />
+          <br />
+          <AnimatedWords
+            text="answered by AI"
+            startDelay={420}
+            className="text-gradient-animated"
+          />
+          <br />
+          <AnimatedWords text="in one dashboard." startDelay={660} />
+        </h1>
 
-          <p
-            className="mt-6 max-w-2xl animate-rise text-[clamp(1rem,1.4vw,1.18rem)] leading-relaxed text-blue-100/85 text-pretty"
-            style={{ animationDelay: '160ms' }}
-          >
-            STS automates your WhatsApp, Instagram, and phone calls with an AI
-            agent that replies in seconds, day or night — then brings every
-            conversation into a single dashboard. We build and connect
-            everything for you.
-          </p>
+        {/* Subtitle */}
+        <p
+          className="mt-4 max-w-xl animate-rise text-[clamp(0.9rem,1.5vw,1.08rem)] leading-relaxed text-blue-100/85 text-pretty sm:mt-5"
+          style={{ animationDelay: '880ms' }}
+        >
+          An AI agent that answers your WhatsApp, Instagram, and phone calls in
+          seconds, day or night. Every conversation lands in one dashboard, and
+          we set the whole thing up for you.
+        </p>
 
-          {/* Channel chips */}
-          <ul
-            className="mt-8 flex animate-rise flex-wrap items-center gap-2.5"
-            style={{ animationDelay: '220ms' }}
-          >
-            {channels.map((channel) => {
-              const ChannelIcon = channel.icon
-              return (
-                <li
-                  key={channel.label}
-                  className={cn(
-                    'flex items-center gap-2 rounded-full border border-white/20 bg-white/10',
-                    'px-4 py-2 text-[13.5px] font-medium text-white backdrop-blur-sm',
-                  )}
-                >
-                  <ChannelIcon className="size-4 shrink-0" />
-                  {channel.label}
-                </li>
-              )
-            })}
-          </ul>
-
-          {/* CTAs */}
-          <div
-            className="mt-9 flex animate-rise flex-wrap gap-3.5"
-            style={{ animationDelay: '280ms' }}
-          >
-            <ExternalButton href={whatsappLink()} variant="whatsapp" size="lg">
-              <WhatsAppIcon className="size-5" />
-              WhatsApp Us
-            </ExternalButton>
-
-            <Button href="#request" variant="light" size="lg">
-              Request Access
-              <ArrowRightIcon className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
-            </Button>
-
-            <Button href="#pricing" variant="outlineLight" size="lg">
-              See pricing
-            </Button>
-          </div>
-
-          {/* Assurances */}
-          <ul
-            className="mt-7 flex animate-rise flex-wrap gap-x-6 gap-y-2"
-            style={{ animationDelay: '340ms' }}
-          >
-            {assurances.map((item) => (
+        {/* Channel chips — dropped on the smallest screens so the hero
+            still fits a single viewport without scrolling. */}
+        <ul
+          className="mt-5 hidden animate-rise flex-wrap items-center justify-center gap-2 sm:flex"
+          style={{ animationDelay: '980ms' }}
+        >
+          {channels.map((channel) => {
+            const ChannelIcon = channel.icon
+            return (
               <li
-                key={item}
-                className="flex items-center gap-2 text-[13.5px] text-blue-200/90"
+                key={channel.label}
+                className="flex items-center gap-2 rounded-full border border-white/18 bg-white/8 px-3.5 py-1.5 text-[12px] font-medium text-white/90 backdrop-blur-md transition-colors duration-300 hover:border-white/40 hover:bg-white/15 sm:text-[13px]"
               >
-                <CheckIcon className="size-4 shrink-0 text-blue-300" />
-                {item}
+                <ChannelIcon className="size-3.5 shrink-0" />
+                {channel.label}
               </li>
-            ))}
-          </ul>
+            )
+          })}
+        </ul>
+
+        {/* CTAs */}
+        <div
+          className="mt-6 flex w-full animate-rise flex-col items-stretch justify-center gap-2.5 sm:mt-7 sm:w-auto sm:flex-row sm:items-center sm:gap-3"
+          style={{ animationDelay: '1060ms' }}
+        >
+          <ExternalButton href={whatsappLink()} variant="whatsapp" size="lg">
+            <WhatsAppIcon className="size-5" />
+            WhatsApp Us
+          </ExternalButton>
+
+          <Button href="#request" variant="light" size="lg">
+            Request Access
+            <ArrowRightIcon className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
+          </Button>
+
+          <Button href="#pricing" variant="outlineLight" size="lg">
+            See pricing
+          </Button>
         </div>
 
         {/* Proof figures */}
         <dl
-          className="mt-16 grid animate-rise grid-cols-2 gap-x-6 gap-y-8 border-t border-white/15 pt-10 lg:grid-cols-4"
-          style={{ animationDelay: '400ms' }}
+          className="mt-6 grid w-full max-w-3xl animate-rise grid-cols-2 gap-x-4 gap-y-4 border-t border-white/15 pt-5 sm:mt-9 sm:gap-x-8 sm:gap-y-5 sm:pt-7 lg:grid-cols-4"
+          style={{ animationDelay: '1160ms' }}
         >
           {heroStats.map((stat) => (
             <div key={stat.label}>
-              <dt className="font-display text-[clamp(1.6rem,3vw,2.2rem)] font-extrabold text-white">
+              <dt className="font-display text-[clamp(1.3rem,2.8vw,1.95rem)] leading-none font-extrabold text-white">
                 {stat.value}
               </dt>
-              <dd className="mt-1 text-[13px] leading-snug text-blue-200/75">
+              <dd className="mt-1.5 text-[11.5px] leading-snug text-blue-200/70 sm:text-[12.5px]">
                 {stat.label}
               </dd>
             </div>
           ))}
         </dl>
       </div>
+
+      {/* Scroll cue */}
+      <a
+        href="#services"
+        aria-label="Scroll to services"
+        className="relative mt-8 hidden animate-scroll-cue text-white/55 transition-colors hover:text-white lg:block"
+      >
+        <ChevronDownIcon className="size-6" />
+      </a>
     </section>
   )
 }

@@ -9,10 +9,11 @@ import { Logo } from './Logo'
 import { MobileMenu } from './MobileMenu'
 
 /**
- * Fixed header.
+ * Floating capsule header.
  *
- * Transparent over the navy hero, then turns white and frosted once the
- * page scrolls — so the nav is legible against both.
+ * Sits detached from the top edge as a rounded glass bar. Over the navy
+ * hero it's a translucent dark capsule; once the page scrolls it turns
+ * white and gains a shadow so it stays legible over pale sections.
  */
 export function Header({ onLoginClick }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -20,51 +21,43 @@ export function Header({ onLoginClick }) {
 
   return (
     <>
-      <header
-        className={cn(
-          'fixed inset-x-0 top-0 z-100 transition-all duration-500 ease-signal',
-          scrolled
-            ? 'border-b border-line bg-white/85 backdrop-blur-xl backdrop-saturate-150'
-            : 'border-b border-transparent bg-transparent',
-        )}
-      >
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 sm:px-8">
-          <div
-            className={cn(
-              'flex items-center transition-all duration-500 ease-signal',
-              scrolled ? 'h-16' : 'h-20',
-            )}
-          >
-            <Logo tone={scrolled ? 'dark' : 'light'} />
-          </div>
+      <header className="fixed inset-x-0 top-0 z-100 px-3 pt-3 sm:px-5 sm:pt-4">
+        <div
+          className={cn(
+            'mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-full border',
+            'px-3 py-2 transition-all duration-500 ease-signal sm:px-4 sm:py-2.5',
+            scrolled
+              ? 'border-line bg-white/85 shadow-[0_8px_32px_-12px_rgb(6_22_52/0.22)] backdrop-blur-xl backdrop-saturate-150'
+              : 'border-white/15 bg-white/8 backdrop-blur-xl',
+          )}
+        >
+          <Logo tone={scrolled ? 'dark' : 'light'} className="shrink-0 pl-1" />
 
-          <nav className="hidden items-center gap-8 lg:flex" aria-label="Main">
+          {/* Centre nav */}
+          <nav className="hidden items-center gap-1 lg:flex" aria-label="Main">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  'group relative text-[14.5px] font-medium transition-colors duration-200',
-                  scrolled ? 'text-muted hover:text-brand' : 'text-blue-100 hover:text-white',
+                  'rounded-full px-3.5 py-2 text-[14px] font-medium transition-all duration-300',
+                  scrolled
+                    ? 'text-muted hover:bg-brand-soft hover:text-brand'
+                    : 'text-blue-100/90 hover:bg-white/12 hover:text-white',
                 )}
               >
                 {link.label}
-                <span
-                  className={cn(
-                    'absolute -bottom-1.5 left-0 h-0.5 w-0 rounded-full transition-all duration-300 ease-signal group-hover:w-full',
-                    scrolled ? 'bg-brand' : 'bg-white',
-                  )}
-                />
               </a>
             ))}
           </nav>
 
-          <div className="flex items-center gap-2.5">
+          {/* Actions */}
+          <div className="flex shrink-0 items-center gap-2">
             {/* Hidden via the wrapper, not the buttons themselves — a
                 button's own `inline-flex` would out-order a `hidden`. */}
-            <div className="hidden items-center gap-2.5 sm:flex">
+            <div className="hidden items-center gap-2 sm:flex">
               <Button
-                variant={scrolled ? 'outline' : 'outlineLight'}
+                variant={scrolled ? 'ghost' : 'outlineLight'}
                 size="sm"
                 onClick={onLoginClick}
               >
@@ -77,7 +70,8 @@ export function Header({ onLoginClick }) {
                 size="sm"
               >
                 <WhatsAppIcon className="size-4" />
-                WhatsApp Us
+                <span className="hidden md:inline">WhatsApp Us</span>
+                <span className="md:hidden">WhatsApp</span>
               </ExternalButton>
             </div>
 
@@ -86,11 +80,13 @@ export function Header({ onLoginClick }) {
               onClick={() => setMenuOpen(true)}
               aria-label="Open menu"
               className={cn(
-                'rounded-lg p-2 transition-colors lg:hidden',
-                scrolled ? 'text-ink hover:bg-ice' : 'text-white hover:bg-white/10',
+                'grid size-10 place-items-center rounded-full transition-colors lg:hidden',
+                scrolled
+                  ? 'text-ink hover:bg-ice'
+                  : 'text-white hover:bg-white/15',
               )}
             >
-              <MenuIcon className="size-6" />
+              <MenuIcon className="size-5" />
             </button>
           </div>
         </div>

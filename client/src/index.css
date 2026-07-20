@@ -50,6 +50,32 @@
   --animate-rise: rise 0.8s var(--ease-signal) both;
   --animate-pop: pop 0.35s var(--ease-signal) both;
   --animate-blink: blink 1.1s step-end infinite;
+  --animate-gradient-flow: gradient-flow 7s ease-in-out infinite;
+  --animate-word-in: word-in 0.9s var(--ease-signal) both;
+  --animate-scroll-cue: scroll-cue 2s ease-in-out infinite;
+  --animate-shine: shine 6s ease-in-out infinite;
+}
+
+/* Slides a wide gradient across the text for a living, multi-colour fill */
+@keyframes gradient-flow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Per-word entrance used by the hero headline */
+@keyframes word-in {
+  from { opacity: 0; transform: translateY(26px) rotate(1.5deg); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+
+@keyframes scroll-cue {
+  0%, 100% { transform: translateY(0); opacity: 0.55; }
+  50% { transform: translateY(7px); opacity: 1; }
+}
+
+@keyframes shine {
+  0%, 100% { opacity: 0.35; transform: translateX(-12%) scale(1); }
+  50% { opacity: 0.65; transform: translateX(12%) scale(1.08); }
 }
 
 @keyframes float {
@@ -156,6 +182,25 @@
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
+}
+
+/* Living multi-colour fill for the hero headline. The gradient is twice
+   the text width and drifts, so the colours move through the letters. */
+@utility text-gradient-animated {
+  background-image: linear-gradient(
+    100deg,
+    #60a5fa 0%,
+    #a5f3fc 22%,
+    #67e8f9 40%,
+    #c4b5fd 60%,
+    #93c5fd 78%,
+    #5eead4 100%
+  );
+  background-size: 220% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: var(--animate-gradient-flow);
 }
 
 /* Frosted panel over photography */
