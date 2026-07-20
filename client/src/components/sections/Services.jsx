@@ -87,7 +87,7 @@ export function Services() {
       <SectionHeading
         eyebrow="What we automate"
         title="Four services. One connected system."
-        description="Each one works on its own, or together as a single system that never drops a conversation — whichever suits how your business actually operates."
+        description="Each one works on its own, or together as a single system that never drops a conversation, whichever suits how your business actually operates."
       />
 
       <div className="mt-12 flex flex-col gap-14 lg:gap-20">

@@ -203,7 +203,7 @@ export const bundles = [
     name: 'Complete Bundle',
     subtitle: 'WhatsApp + Instagram + Voice',
     description:
-      'Every channel automated — messaging and phone calls — in one dashboard, at the lowest combined price.',
+      'Every channel automated, messaging and phone calls, in one dashboard, at the lowest combined price.',
     icon: 'sparkle',
     featured: true,
     tiers: [

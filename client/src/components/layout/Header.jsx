@@ -53,7 +53,7 @@ export function Header({ onLoginClick }) {
 
           {/* Actions */}
           <div className="flex shrink-0 items-center gap-2">
-            {/* Hidden via the wrapper, not the buttons themselves — a
+            {/* Hidden via the wrapper, not the buttons themselves, a
                 button's own `inline-flex` would out-order a `hidden`. */}
             <div className="hidden items-center gap-2 sm:flex">
               <Button

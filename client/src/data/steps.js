@@ -9,7 +9,7 @@ export const steps = [
     number: '01',
     title: 'Request access',
     description:
-      'Tell us your business name, contact details, and which channels you need — WhatsApp, Instagram, voice, or all three. It takes about a minute.',
+      'Tell us your business name, contact details, and which channels you need, WhatsApp, Instagram, voice, or all three. It takes about a minute.',
     detail: 'You send one short form',
     image: photos.strategy,
     imageAlt: 'Two colleagues planning a project together',
@@ -27,7 +27,7 @@ export const steps = [
     number: '03',
     title: 'You run it from one dashboard',
     description:
-      'Log in to watch conversations arrive across every channel, adjust the chatbot rules, track leads, and review reports — all from a single screen.',
+      'Log in to watch conversations arrive across every channel, adjust the chatbot rules, track leads, and review reports, all from a single screen.',
     detail: 'You stay in control',
     image: photos.office,
     imageAlt: 'Business team reviewing results in an open-plan office',

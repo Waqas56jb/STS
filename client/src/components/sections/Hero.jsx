@@ -112,7 +112,7 @@ export function Hero() {
           we set the whole thing up for you.
         </p>
 
-        {/* Channel chips — dropped on the smallest screens so the hero
+        {/* Channel chips, dropped on the smallest screens so the hero
             still fits a single viewport without scrolling. */}
         <ul
           className="mt-5 hidden animate-rise flex-wrap items-center justify-center gap-2 sm:flex"

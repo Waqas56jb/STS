@@ -11,7 +11,7 @@ export function HowItWorks() {
       <SectionHeading
         eyebrow="Getting started"
         title="Three steps, and it's running."
-        description="There's no self-service signup — because the setup is the part we take off your hands entirely."
+        description="There's no self-service signup, because the setup is the part we take off your hands entirely."
       />
 
       <ol className="mt-16 grid gap-6 md:grid-cols-3">

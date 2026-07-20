@@ -15,7 +15,7 @@ export function Benefits() {
       <SectionHeading
         eyebrow="Why businesses choose STS"
         title="Built to be trusted with your customers."
-        description="The details that decide whether automation helps your business — or embarrasses it in front of the people you're trying to serve."
+        description="The details that decide whether automation helps your business, or embarrasses it in front of the people you're trying to serve."
       />
 
       <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

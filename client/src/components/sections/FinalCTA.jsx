@@ -30,7 +30,7 @@ export function FinalCTA() {
               </h2>
               <p className="mt-4 max-w-lg text-[16px] leading-relaxed text-blue-100/85">
                 Message us on WhatsApp and we&apos;ll walk you through exactly
-                what setup looks like for your business — what it costs, how
+                what setup looks like for your business, what it costs, how
                 long it takes, and what we need from you. No commitment.
               </p>
 

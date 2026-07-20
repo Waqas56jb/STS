@@ -15,7 +15,7 @@ export function Logo({ className, tone = 'dark', showText = true }) {
     <a
       href="#top"
       className={cn('group inline-flex items-center gap-2.5', className)}
-      aria-label="STS — back to top"
+      aria-label="STS, back to top"
     >
       <span className="relative grid size-10 shrink-0 place-items-center">
         <svg viewBox="0 0 44 44" className="size-10" aria-hidden="true">

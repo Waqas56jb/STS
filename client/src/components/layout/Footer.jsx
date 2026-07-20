@@ -11,7 +11,7 @@ export function Footer({ onLoginClick }) {
       {/* Ambient glow */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -top-40 left-1/3 size-[36rem] rounded-full bg-[radial-gradient(circle,rgb(59_130_246/0.22),transparent_70%)] blur-2xl"
+        className="pointer-events-none absolute -top-40 left-1/3 h-[36rem] w-[min(36rem,100vw)] rounded-full bg-[radial-gradient(circle,rgb(59_130_246/0.22),transparent_70%)] blur-2xl"
       />
 
       <div className="relative mx-auto w-full max-w-6xl px-5 sm:px-8">
@@ -20,7 +20,7 @@ export function Footer({ onLoginClick }) {
           <div>
             <Logo tone="light" />
             <p className="mt-5 max-w-xs text-[14.5px] leading-relaxed text-blue-200/80">
-              AI automation for every customer conversation — WhatsApp,
+              AI automation for every customer conversation, WhatsApp,
               Instagram, and phone calls, managed from one dashboard.
             </p>
 
@@ -97,7 +97,7 @@ export function Footer({ onLoginClick }) {
             </ul>
 
             <p className="mt-5 text-[12.5px] leading-relaxed text-blue-300/60">
-              Support enquiries go to the same address — we usually reply within
+              Support enquiries go to the same address, we usually reply within
               one business day.
             </p>
           </div>

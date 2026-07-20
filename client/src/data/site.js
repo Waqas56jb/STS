@@ -6,10 +6,10 @@
 
 export const site = {
   name: 'STS',
-  fullName: 'STS — Smart Talk Systems',
+  fullName: 'STS, Smart Talk Systems',
   tagline: 'Every customer conversation, automated in one place.',
   description:
-    'STS automates WhatsApp, Instagram, and phone calls with AI — answering customers 24/7 and bringing every conversation into one dashboard. Official Meta WhatsApp API, full setup done for you.',
+    'STS automates WhatsApp, Instagram, and phone calls with AI, answering customers 24/7 and bringing every conversation into one dashboard. Official Meta WhatsApp API, full setup done for you.',
 
   /**
    * WhatsApp Business number: country code + number, digits only.

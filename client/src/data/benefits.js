@@ -7,7 +7,7 @@ export const benefits = [
     icon: 'shield',
     title: 'Official Meta WhatsApp API',
     description:
-      'No unofficial workarounds and no risk of your number being banned — this is the same approved infrastructure Meta issues to verified businesses.',
+      'No unofficial workarounds and no risk of your number being banned, this is the same approved infrastructure Meta issues to verified businesses.',
     span: 2,
     highlight: true,
   },
@@ -39,7 +39,7 @@ export const benefits = [
     icon: 'users',
     title: 'Human handoff, built in',
     description:
-      'When a conversation needs a real person, the AI flags it and hands over cleanly — no customer left talking to a wall.',
+      'When a conversation needs a real person, the AI flags it and hands over cleanly, no customer left talking to a wall.',
   },
   {
     icon: 'chart',

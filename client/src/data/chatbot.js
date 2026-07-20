@@ -32,7 +32,7 @@ export const chatNodes = {
   about: {
     messages: [
       'STS automates your customer conversations with AI.',
-      'We connect WhatsApp, Instagram, and phone calls to one AI agent that answers customers 24/7 — then bring every conversation into a single dashboard you control.',
+      'We connect WhatsApp, Instagram, and phone calls to one AI agent that answers customers 24/7, then bring every conversation into a single dashboard you control.',
       'We handle the entire setup for you. You never touch code.',
     ],
     options: [
@@ -54,7 +54,7 @@ export const chatNodes = {
 
   svc_whatsapp: {
     messages: [
-      'Our WhatsApp chatbot runs on the official Meta WhatsApp Business API — not an unofficial workaround, so your number stays safe.',
+      'Our WhatsApp chatbot runs on the official Meta WhatsApp Business API, not an unofficial workaround, so your number stays safe.',
       'It answers customers in seconds, 24 hours a day, and hands the chat to your team the moment someone needs a real person.',
       'Plans start at 20.00 KWD per month for 2,500 messages.',
     ],
@@ -93,7 +93,7 @@ export const chatNodes = {
 
   svc_dashboard: {
     messages: [
-      'Your dashboard brings every channel into one place — WhatsApp, Instagram, and call transcripts in a single inbox.',
+      'Your dashboard brings every channel into one place, WhatsApp, Instagram, and call transcripts in a single inbox.',
       'You also get chatbot training, automation rules, your lead pipeline, and reports on response times and volume.',
       'It comes included with every plan, scoped to your business alone.',
     ],
@@ -108,7 +108,7 @@ export const chatNodes = {
     messages: [
       'All plans are monthly, in KWD, with no long-term contract.',
       'Standalone: WhatsApp from 20.00, Instagram from 20.00, Voice from 39.00.',
-      'Bundles are cheaper than buying separately — the Social bundle starts at 34.00 and the Complete bundle (all three channels) at 65.00.',
+      'Bundles are cheaper than buying separately, the Social bundle starts at 34.00 and the Complete bundle (all three channels) at 65.00.',
     ],
     options: [
       { label: 'Show me the full pricing table', href: '#pricing' },
@@ -120,8 +120,8 @@ export const chatNodes = {
   bundles: {
     messages: [
       'There are two bundles.',
-      'Social = WhatsApp + Instagram, from 34.00 KWD — around 15% less than buying both separately.',
-      'Complete = WhatsApp + Instagram + Voice, from 65.00 KWD — the biggest saving, and everything runs from one dashboard.',
+      'Social = WhatsApp + Instagram, from 34.00 KWD, around 15% less than buying both separately.',
+      'Complete = WhatsApp + Instagram + Voice, from 65.00 KWD, the biggest saving, and everything runs from one dashboard.',
     ],
     options: [
       { label: 'Compare all bundles', href: '#pricing' },
@@ -133,7 +133,7 @@ export const chatNodes = {
   start: {
     messages: [
       'Getting started takes three steps:',
-      '1️⃣ You send the request access form — about a minute.\n2️⃣ We set up your channels and train the AI on your business.\n3️⃣ You log in and run everything from your dashboard.',
+      '1️⃣ You send the request access form, about a minute.\n2️⃣ We set up your channels and train the AI on your business.\n3️⃣ You log in and run everything from your dashboard.',
       "There's no self-service signup, because we do the setup for you.",
     ],
     options: [
@@ -146,7 +146,7 @@ export const chatNodes = {
   human: {
     messages: [
       'Happy to connect you with the team.',
-      'The fastest way is WhatsApp — we usually reply within a day. You can also email us at sts@shgardiauto.com.',
+      'The fastest way is WhatsApp, we usually reply within a day. You can also email us at sts@shgardiauto.com.',
     ],
     options: [
       { label: 'Open WhatsApp', whatsapp: true },

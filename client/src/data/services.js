@@ -11,7 +11,7 @@ export const services = [
     accent: 'whatsapp',
     title: 'WhatsApp AI Chatbot',
     summary:
-      'Built on the official WhatsApp Business API. Your AI agent answers every customer in seconds — around the clock — and hands the conversation to your team the moment a human is needed.',
+      'Built on the official WhatsApp Business API. Your AI agent answers every customer in seconds, around the clock, and hands the conversation to your team the moment a human is needed.',
     points: [
       'Official Meta WhatsApp Business API',
       'Replies 24/7, including weekends',
@@ -45,7 +45,7 @@ export const services = [
     accent: 'voice',
     title: 'AI Voice Calling Agent',
     summary:
-      'A natural-sounding AI agent that answers your inbound calls and can place outbound ones — with every call transcribed, summarised, and logged automatically.',
+      'A natural-sounding AI agent that answers your inbound calls and can place outbound ones, with every call transcribed, summarised, and logged automatically.',
     points: [
       'Answers inbound calls automatically',
       'Places outbound calls on request',
@@ -62,7 +62,7 @@ export const services = [
     accent: 'brand',
     title: 'One Unified Dashboard',
     summary:
-      'Every channel in a single view — messages, calls, chatbot settings, leads, and reports — scoped to your business alone. One login, one place to run everything.',
+      'Every channel in a single view, messages, calls, chatbot settings, leads, and reports, scoped to your business alone. One login, one place to run everything.',
     points: [
       'All channels in one place',
       'Chatbot training and rules',

@@ -10,6 +10,7 @@ import { TrustStrip } from './components/sections/TrustStrip'
 import { Services } from './components/sections/Services'
 import { HowItWorks } from './components/sections/HowItWorks'
 import { Benefits } from './components/sections/Benefits'
+import { Showcase } from './components/sections/Showcase'
 import { Pricing } from './components/sections/Pricing'
 import { FAQ } from './components/sections/FAQ'
 import { RequestAccess } from './components/sections/RequestAccess'
@@ -37,6 +38,7 @@ export default function App() {
         <Services />
         <HowItWorks />
         <Benefits />
+        <Showcase />
         <Pricing />
         <FAQ />
         <RequestAccess />

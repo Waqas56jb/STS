@@ -14,12 +14,12 @@ const needOptions = [
   'AI Voice Agent',
   'Social Bundle (WhatsApp + Instagram)',
   'Complete Bundle (all channels)',
-  "Not sure yet — let's talk",
+  "Not sure yet, let's talk",
 ]
 
 const sidePoints = [
   'We reply on WhatsApp, usually within one business day',
-  "No commitment — we'll ask about your needs first",
+  "No commitment, we'll ask about your needs first",
   'We set up every channel for you, start to finish',
   'Already a client? Use the Login button in the menu',
 ]
@@ -84,7 +84,7 @@ export function RequestAccess() {
     <Section id="request" className="bg-ice">
       <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-start lg:gap-14">
         {/* ---------- Pitch side ---------- */}
-        <Reveal>
+        <Reveal className="min-w-0">
           <Eyebrow>Get started</Eyebrow>
 
           <h2 className="mt-5 text-[clamp(1.9rem,3.6vw,2.7rem)] text-balance">
@@ -92,7 +92,7 @@ export function RequestAccess() {
           </h2>
 
           <p className="mt-4 max-w-md text-[16px] leading-relaxed text-muted">
-            There&apos;s no open signup — we onboard every business ourselves, so
+            There&apos;s no open signup, we onboard every business ourselves, so
             your channels are configured correctly from day one.
           </p>
 
@@ -114,17 +114,19 @@ export function RequestAccess() {
             />
           </figure>
 
+          {/* flex-wrap + break-all so the address can wrap on narrow
+              screens instead of forcing the grid column wider. */}
           <a
             href={`mailto:${site.email}`}
-            className="mt-6 inline-flex items-center gap-2.5 text-[14px] font-medium text-muted transition-colors hover:text-brand"
+            className="mt-6 inline-flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[14px] font-medium break-all text-muted transition-colors hover:text-brand"
           >
-            <MailIcon className="size-4" />
-            Prefer email? {site.email}
+            <MailIcon className="size-4 shrink-0" />
+            <span>Prefer email? {site.email}</span>
           </a>
         </Reveal>
 
         {/* ---------- Form side ---------- */}
-        <Reveal delay={110}>
+        <Reveal delay={110} className="min-w-0">
           <div className="rounded-2xl border border-line bg-white p-6 card-shadow sm:p-8">
             {submitted ? (
               <div className="flex flex-col items-center py-12 text-center">
@@ -132,7 +134,7 @@ export function RequestAccess() {
                 <h3 className="mt-5 text-[22px]">Almost there</h3>
                 <p className="mt-2.5 max-w-sm text-[14.5px] leading-relaxed text-muted">
                   We opened WhatsApp with your request pre-filled. Press send
-                  there and we&apos;ll take it from there — usually within one
+                  there and we&apos;ll take it from there, usually within one
                   business day.
                 </p>
                 <Button

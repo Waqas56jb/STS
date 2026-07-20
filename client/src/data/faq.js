@@ -8,7 +8,7 @@ export const faqGroups = [
     items: [
       {
         q: 'How do I sign up for STS?',
-        a: "There's no open self-service signup. You request access using the form on this page, and we review every request personally. Once approved, we set up your channels, build your chatbot, and create your dashboard account — then send you your login.",
+        a: "There's no open self-service signup. You request access using the form on this page, and we review every request personally. Once approved, we set up your channels, build your chatbot, and create your dashboard account, then send you your login.",
       },
       {
         q: 'How long does setup take?',
@@ -16,7 +16,7 @@ export const faqGroups = [
       },
       {
         q: 'What do you need from me to get started?',
-        a: 'Your business name and contact details, the phone number you want to use for WhatsApp, access to your Instagram business account, and any material that helps train the AI — a price list, FAQ document, delivery policy, or product catalogue.',
+        a: 'Your business name and contact details, the phone number you want to use for WhatsApp, access to your Instagram business account, and any material that helps train the AI, a price list, FAQ document, delivery policy, or product catalogue.',
       },
       {
         q: 'Do I need any technical knowledge?',
@@ -37,7 +37,7 @@ export const faqGroups = [
       },
       {
         q: 'Is a bundle cheaper than buying services separately?',
-        a: 'Yes. Every bundle costs less than the same services bought individually — the saving is shown on each bundle card. The Complete bundle, which includes voice, gives the largest discount.',
+        a: 'Yes. Every bundle costs less than the same services bought individually, the saving is shown on each bundle card. The Complete bundle, which includes voice, gives the largest discount.',
       },
       {
         q: 'Am I locked into a long contract?',
@@ -45,7 +45,7 @@ export const faqGroups = [
       },
       {
         q: 'Can I switch between plans later?',
-        a: 'Yes — upgrade or downgrade at any time. If your enquiry volume grows, moving from Starter to Growth is a single change on our side with no new setup work for you.',
+        a: 'Yes, upgrade or downgrade at any time. If your enquiry volume grows, moving from Starter to Growth is a single change on our side with no new setup work for you.',
       },
     ],
   },
@@ -58,7 +58,7 @@ export const faqGroups = [
       },
       {
         q: 'What happens when the AI cannot answer something?',
-        a: "It hands the conversation to your team rather than guessing. You define the triggers — specific keywords, complaints, refund requests, or simply the customer asking for a person — and the AI escalates cleanly with the full history attached.",
+        a: "It hands the conversation to your team rather than guessing. You define the triggers, specific keywords, complaints, refund requests, or simply the customer asking for a person, and the AI escalates cleanly with the full history attached.",
       },
       {
         q: 'Can the AI reply in Arabic?',
@@ -66,7 +66,7 @@ export const faqGroups = [
       },
       {
         q: 'How is the chatbot trained on my business?',
-        a: 'We load your documents — price lists, FAQs, delivery zones, product catalogues — and write rules specific to how your business operates. You can update this material at any time from the dashboard.',
+        a: 'We load your documents, price lists, FAQs, delivery zones, product catalogues, and write rules specific to how your business operates. You can update this material at any time from the dashboard.',
       },
     ],
   },

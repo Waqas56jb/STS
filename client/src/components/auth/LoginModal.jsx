@@ -28,7 +28,7 @@ export function LoginModal({ open, onClose }) {
 
     setSubmitting(false)
     onClose()
-    showToast('Dashboard login is coming soon — onboarded clients get access by WhatsApp.')
+    showToast('Dashboard login is coming soon, onboarded clients get access by WhatsApp.')
   }
 
   return (
