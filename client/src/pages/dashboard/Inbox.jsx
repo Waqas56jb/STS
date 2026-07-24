@@ -16,6 +16,9 @@ export function Inbox() {
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState('')
+  // On phones the inbox is a single pane; opening a conversation slides to
+  // the thread, the back button returns to the list.
+  const [mobileThread, setMobileThread] = useState(false)
   const msgRef = useRef(null)
 
   const active = convs.find((c) => c.id === activeId)
@@ -33,6 +36,7 @@ export function Inbox() {
   function openConv(id) {
     setConvs((cs) => cs.map((c) => (c.id === id ? { ...c, unread: 0 } : c)))
     setActiveId(id)
+    setMobileThread(true)
   }
 
   function setMode(id, m) {
@@ -68,7 +72,7 @@ export function Inbox() {
   ]
 
   return (
-    <div className="inbox">
+    <div className={`inbox ${mobileThread ? 'show-thread' : ''}`}>
       {/* conversation list */}
       <div className="conv-list">
         <div className="conv-head">
@@ -110,6 +114,9 @@ export function Inbox() {
         <div className="thread-head">
           {active && (
             <>
+              <button className="back" onClick={() => setMobileThread(false)} aria-label="Back to conversations">
+                <Icon name="arrow-left" size={18} />
+              </button>
               <span className={`ch ${chIcon[active.ch][0]}`}>
                 <Icon name={chIcon[active.ch][1]} />
               </span>

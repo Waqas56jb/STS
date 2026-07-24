@@ -259,7 +259,14 @@ function LoginModal({ open, onClose }) {
     try {
       const { token, user } = await apiPost('/auth/login', { email, password })
       saveSession({ token, user })
-      navigate('/dashboard')
+      // route by role — admin panel is a separate app served at /admin/,
+      // the client dashboard is a route in this app (matches the original
+      // admin/admin.html vs client/client.html redirect).
+      if (user.role === 'admin') {
+        window.location.href = '/admin/'
+      } else {
+        navigate('/dashboard')
+      }
     } catch (ex) {
       // A real 401/403 means wrong credentials → show the error.
       // Anything else (network TypeError, or a 5xx when the API server is

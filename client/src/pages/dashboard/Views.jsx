@@ -270,14 +270,16 @@ export function AnalyticsView() {
       <div className="grid g2">
         <div className="card">
           <h3><Icon name="help-circle" /><T k="an_c3" /></h3>
-          <table>
-            <thead><tr><th><T k="th_q" /></th><th><T k="th_ct" /></th><th><T k="th_res" /></th></tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.q}><td><T k={r.q} /></td><td>{r.ct}</td><td><span className={`badge ${r.b}`}>{r.res}</span></td></tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="tbl">
+            <table>
+              <thead><tr><th><T k="th_q" /></th><th><T k="th_ct" /></th><th><T k="th_res" /></th></tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.q}><td><T k={r.q} /></td><td>{r.ct}</td><td><span className={`badge ${r.b}`}>{r.res}</span></td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
         <div className="card"><h3><Icon name="target" /><T k="an_c4" /></h3><div className="chart-box"><LeadsChart /></div></div>
       </div>
@@ -296,18 +298,20 @@ export function BillingView() {
       </div>
       <div className="card">
         <h3><Icon name="receipt" /><T k="bl_inv" /></h3>
-        <table>
-          <thead><tr><th><T k="th_no" /></th><th><T k="th_date" /></th><th><T k="th_desc" /></th><th><T k="th_amt" /></th><th><T k="th_st" /></th><th /></tr></thead>
-          <tbody>
-            {invoices.map((inv) => (
-              <tr key={inv.no}>
-                <td>{inv.no}</td><td>{inv.date}</td><td>{inv.desc}</td><td>{inv.amt}</td>
-                <td><span className="badge b-ok"><T k="paid" /></span></td>
-                <td><button className="btn btn-o" style={{ padding: '6px 12px' }}><Icon name="download" size={14} />PDF</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="tbl">
+          <table>
+            <thead><tr><th><T k="th_no" /></th><th><T k="th_date" /></th><th><T k="th_desc" /></th><th><T k="th_amt" /></th><th><T k="th_st" /></th><th /></tr></thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.no}>
+                  <td>{inv.no}</td><td>{inv.date}</td><td>{inv.desc}</td><td>{inv.amt}</td>
+                  <td><span className="badge b-ok"><T k="paid" /></span></td>
+                  <td><button className="btn btn-o" style={{ padding: '6px 12px' }}><Icon name="download" size={14} />PDF</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="btn btn-p"><Icon name="arrow-up-circle" size={16} /><T k="bl_up" /></button>
           <a className="btn btn-o" href={WHATSAPP}><Icon name="message-circle" size={16} /><T k="bl_help" /></a>

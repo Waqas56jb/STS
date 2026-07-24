@@ -77,6 +77,28 @@ textarea {
   font-family: var(--body);
 }
 
+/* Global toast (shared by the client dashboard and admin panel) */
+.sts-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--ink);
+  color: #fff;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 13.5px;
+  transition: 0.3s;
+  z-index: 250;
+  opacity: 0;
+  pointer-events: none;
+}
+.sts-toast.show {
+  opacity: 1;
+  transform: translateX(-50%);
+}
+
 /* ============================================================
    LANDING  (scoped under .site)
    ============================================================ */
@@ -1139,6 +1161,21 @@ html[dir='rtl'] .site .reply .bubble {
   position: sticky;
   top: 0;
   height: 100vh;
+  /* scroll within the sidebar so the language / logout buttons at the
+     bottom stay reachable on short screens */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* slim sidebar scrollbar */
+.dash aside::-webkit-scrollbar {
+  width: 6px;
+}
+.dash aside::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+.dash .nav-item {
+  flex: none;
 }
 .dash .logo {
   display: flex;
@@ -1209,6 +1246,9 @@ html[dir='rtl'] .dash .nav-sec {
 /* main */
 .dash main {
   padding: 26px 30px;
+  /* grid item must be allowed to shrink below its content's intrinsic
+     width, otherwise the charts/tables force a horizontal scrollbar */
+  min-width: 0;
 }
 .dash .topbar {
   display: flex;
@@ -1378,13 +1418,14 @@ html[dir='rtl'] .dash .nav-sec {
 /* inbox */
 .dash .inbox {
   display: grid;
-  grid-template-columns: 320px 1fr 260px;
+  grid-template-columns: 320px minmax(0, 1fr) 260px;
   gap: 0;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 16px;
   overflow: hidden;
   height: calc(100vh - 150px);
+  min-width: 0;
 }
 .dash .conv-list {
   border-inline-end: 1px solid var(--line);
@@ -1470,6 +1511,20 @@ html[dir='rtl'] .dash .nav-sec {
 .dash .thread {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+/* mobile-only "back to conversations" button in the thread header */
+.dash .thread-head .back {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  flex: none;
 }
 .dash .thread-head {
   padding: 14px 18px;
@@ -1800,6 +1855,22 @@ html[dir='rtl'] .dash th {
 .dash .chart-box {
   position: relative;
   height: 280px;
+  min-width: 0;
+}
+.dash .chart-box canvas {
+  max-width: 100% !important;
+}
+/* horizontal-scroll wrapper for wide tables on small screens */
+.dash .tbl {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.dash .tbl table {
+  min-width: 480px;
+}
+/* backdrop behind the mobile sidebar drawer */
+.dash .side-overlay {
+  display: none;
 }
 .dash .progress {
   height: 8px;
@@ -1840,9 +1911,10 @@ html[dir='rtl'] .dash th {
   opacity: 1;
   transform: translateX(-50%);
 }
+/* ---- Tablet: drop the customer panel, 2-up stats ---- */
 @media (max-width: 1100px) {
   .dash .inbox {
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: 300px minmax(0, 1fr);
   }
   .dash .cust {
     display: none;
@@ -1850,26 +1922,116 @@ html[dir='rtl'] .dash th {
   .dash .g4 {
     grid-template-columns: 1fr 1fr;
   }
+  .dash main {
+    padding: 22px 20px;
+  }
 }
+
+/* ---- Mobile: off-canvas sidebar, single-pane inbox, sticky topbar ---- */
 @media (max-width: 860px) {
   .dash .app {
     grid-template-columns: 1fr;
   }
+
+  /* sidebar becomes a slide-in drawer */
   .dash aside {
     position: fixed;
-    inset-inline-start: -260px;
-    z-index: 60;
-    transition: 0.3s;
-    width: 248px;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 270px;
+    max-width: 82vw;
+    transform: translateX(-100%);
+    transition: transform 0.3s var(--ease-signal, ease);
+    z-index: 70;
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.45);
+  }
+  html[dir='rtl'] .dash aside {
+    transform: translateX(100%);
   }
   .dash aside.open {
-    inset-inline-start: 0;
+    transform: none;
   }
+
+  .dash .side-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 26, 43, 0.5);
+    z-index: 65;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s, visibility 0.3s;
+  }
+  .dash .side-overlay.on {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .dash main {
+    padding: 16px;
+  }
+
+  /* topbar sticks to the top so the burger is always reachable */
+  .dash .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    margin: -16px -16px 16px;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .dash .burger {
+    display: inline-flex;
+  }
+
+  /* stack every card grid */
+  .dash .g4,
   .dash .g3,
   .dash .g2 {
     grid-template-columns: 1fr;
   }
-  .dash .burger {
+
+  /* inbox → single pane, toggled between list and thread */
+  .dash .inbox {
+    grid-template-columns: 1fr;
+    height: calc(100dvh - 132px);
+  }
+  .dash .inbox .thread {
+    display: none;
+  }
+  .dash .inbox.show-thread .conv-list {
+    display: none;
+  }
+  .dash .inbox.show-thread .thread {
+    display: flex;
+  }
+  .dash .thread-head .back {
     display: inline-flex;
+  }
+
+  /* 16px inputs stop iOS Safari from zooming on focus */
+  .dash input,
+  .dash select,
+  .dash textarea {
+    font-size: 16px;
+  }
+}
+
+/* ---- Small phones: 2-up stat cards stay readable ---- */
+@media (max-width: 520px) {
+  .dash main {
+    padding: 14px;
+  }
+  .dash .topbar {
+    margin: -14px -14px 14px;
+    padding: 12px 14px;
+  }
+  .dash .topbar h1 {
+    font-size: 19px;
+  }
+  .dash .card {
+    padding: 18px;
   }
 }

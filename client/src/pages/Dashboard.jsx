@@ -95,6 +95,9 @@ export default function Dashboard() {
   return (
     <div className="dash">
       <div className="app">
+        {/* backdrop shown behind the mobile drawer */}
+        <div className={`side-overlay ${sideOpen ? 'on' : ''}`} onClick={() => setSideOpen(false)} />
+
         {/* ============ SIDEBAR ============ */}
         <aside className={sideOpen ? 'open' : ''}>
           <div className="logo"><span className="logo-mark"><Icon name="messages-square" /></span>STS</div>

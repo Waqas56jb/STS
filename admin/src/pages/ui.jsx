@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
-import { useLang } from '../../i18n/LangContext'
+import { useLang } from '../i18n/LangContext'
 
 /** Toggle switch matching the original .switch/.slider markup (uncontrolled). */
 export function Switch({ defaultChecked = false }) {
