@@ -94,6 +94,23 @@ export const adminEn = {
   activate: 'Activate',
   login_as: 'Login as client',
   no_req: 'No new requests 🎉',
+
+  /* login page */
+  lg_tag: 'Admin access',
+  lg_welcome: 'Welcome back',
+  lg_sub: 'Sign in to the STS admin panel.',
+  lg_email: 'Email',
+  lg_pass: 'Password',
+  lg_btn: 'Sign in',
+  lg_busy: 'Signing in…',
+  lg_invalid: 'Invalid email or password.',
+  lg_notadmin: "This account doesn't have admin access.",
+  lg_brand_h: 'Run the whole STS platform from one panel.',
+  lg_brand_p: 'Businesses, access requests, payments, invoices and platform analytics — all in one place.',
+  lg_p1: 'Approve & onboard businesses',
+  lg_p2: 'Track revenue & invoices',
+  lg_p3: 'Platform-wide analytics',
+  lg_hint: 'Access is restricted to STS staff.',
 }
 
 export const adminAr = {
@@ -184,6 +201,23 @@ export const adminAr = {
   activate: 'تفعيل',
   login_as: 'دخول كعميل',
   no_req: 'لا توجد طلبات جديدة 🎉',
+
+  /* login page */
+  lg_tag: 'دخول المدير',
+  lg_welcome: 'مرحباً بعودتك',
+  lg_sub: 'سجّل الدخول إلى لوحة تحكم STS.',
+  lg_email: 'البريد الإلكتروني',
+  lg_pass: 'كلمة المرور',
+  lg_btn: 'تسجيل الدخول',
+  lg_busy: 'جارٍ الدخول…',
+  lg_invalid: 'بيانات الدخول غير صحيحة.',
+  lg_notadmin: 'هذا الحساب لا يملك صلاحية المدير.',
+  lg_brand_h: 'أدر منصة STS بالكامل من لوحة واحدة.',
+  lg_brand_p: 'الأنشطة وطلبات الانضمام والمدفوعات والفواتير وتحليلات المنصة — في مكان واحد.',
+  lg_p1: 'الموافقة وتجهيز الأنشطة',
+  lg_p2: 'تتبع الإيرادات والفواتير',
+  lg_p3: 'تحليلات شاملة للمنصة',
+  lg_hint: 'الوصول مقصور على فريق STS.',
 }
 
 /** Hook returning a translate fn bound to the admin dictionary + current lang. */

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { Avatar } from '../components/Avatar'
 import { T, useLang } from '../i18n/LangContext'
+
+const LOGO = import.meta.env.BASE_URL + 'image.png'
 import { API, clearSession, getUser } from '../lib/api'
 import { ToastProvider } from './dashboard/ui'
 import { Inbox } from './dashboard/Inbox'
@@ -101,7 +103,7 @@ export default function Dashboard() {
 
         {/* ============ SIDEBAR ============ */}
         <aside className={sideOpen ? 'open' : ''}>
-          <div className="logo"><span className="logo-mark"><Icon name="messages-square" /></span>STS</div>
+          <div className="logo"><span className="logo-mark"><img src={LOGO} alt="STS" /></span>STS</div>
           {NAV.map((item, i) =>
             item.section ? (
               <div className="nav-sec" key={'s' + i}>{t(item.section)}</div>

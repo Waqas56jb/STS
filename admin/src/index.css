@@ -135,13 +135,21 @@ textarea {
   margin-bottom: 6px;
 }
 .admin .logo-mark {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--lagoon), var(--wa) 55%, var(--vc));
+  background: #fff;
   display: grid;
   place-items: center;
-  color: #04270f;
+  overflow: hidden;
+  padding: 3px;
+  flex: none;
+}
+.admin .logo-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .admin .admin-tag {
   font-size: 10px;
@@ -628,5 +636,282 @@ html[dir='rtl'] .admin th {
   .admin * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* ============================================================
+   ADMIN LOGIN PAGE
+   ============================================================ */
+.admin-login {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  font-family: var(--body);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* brand panel */
+.admin-login .al-brand {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(155deg, #0c3a2c 0%, #0a2036 45%, #071a2b 100%);
+  color: #fff;
+  padding: 52px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.admin-login .al-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(520px 360px at 80% 12%, rgba(15, 190, 143, 0.28), transparent 60%),
+    radial-gradient(480px 380px at 8% 92%, rgba(91, 141, 239, 0.18), transparent 60%);
+  pointer-events: none;
+}
+.admin-login .al-brand-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.admin-login .al-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.admin-login .al-logo .badge {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #fff;
+  padding: 5px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  box-shadow: 0 8px 26px -8px rgba(0, 0, 0, 0.5);
+}
+.admin-login .al-logo .badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.admin-login .al-logo b {
+  font-family: var(--disp);
+  font-size: 22px;
+  font-weight: 800;
+}
+.admin-login .al-tag {
+  font-family: var(--disp);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lagoon);
+  font-weight: 800;
+  border: 1px solid rgba(15, 190, 143, 0.35);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+html[dir='rtl'] .admin-login .al-tag {
+  letter-spacing: 0;
+}
+.admin-login .al-brand-body {
+  position: relative;
+  margin-top: auto;
+}
+.admin-login .al-brand-body h1 {
+  font-family: var(--disp);
+  font-weight: 800;
+  font-size: clamp(26px, 2.6vw, 38px);
+  line-height: 1.16;
+  max-width: 460px;
+}
+.admin-login .al-brand-body p {
+  color: rgba(255, 255, 255, 0.72);
+  margin-top: 14px;
+  max-width: 420px;
+  font-size: 15px;
+}
+.admin-login .al-points {
+  margin-top: 26px;
+  display: grid;
+  gap: 13px;
+}
+.admin-login .al-points div {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.88);
+}
+.admin-login .al-points svg {
+  width: 18px;
+  height: 18px;
+  color: var(--lagoon);
+  flex: none;
+}
+
+/* form side */
+.admin-login .al-form-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+.admin-login .al-lang {
+  position: absolute;
+  top: 22px;
+  inset-inline-end: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 15px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+}
+.admin-login .al-lang:hover {
+  border-color: var(--lagoon);
+  color: var(--lagoon-d);
+}
+.admin-login .al-card {
+  width: 100%;
+  max-width: 400px;
+}
+.admin-login .al-mobilelogo {
+  display: none;
+}
+.admin-login .al-card h2 {
+  font-family: var(--disp);
+  font-size: 27px;
+  font-weight: 800;
+}
+.admin-login .al-card .sub {
+  color: var(--mut);
+  font-size: 14px;
+  margin: 6px 0 26px;
+}
+.admin-login .al-field {
+  margin-bottom: 16px;
+  text-align: start;
+}
+.admin-login .al-field label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-bottom: 7px;
+  color: #33475b;
+}
+.admin-login .al-field input {
+  width: 100%;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 13px 14px;
+  font-size: 14.5px;
+  background: #fafbfc;
+  transition: 0.2s;
+}
+.admin-login .al-field input:focus {
+  outline: none;
+  border-color: var(--lagoon);
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(15, 190, 143, 0.12);
+}
+.admin-login .al-btn {
+  width: 100%;
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--lagoon);
+  color: #03271b;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-family: var(--body);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+.admin-login .al-btn:hover {
+  background: var(--lagoon-d);
+  color: #fff;
+}
+.admin-login .al-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.admin-login .al-err {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 11px;
+  padding: 11px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  text-align: start;
+}
+.admin-login .al-err svg {
+  flex: none;
+}
+.admin-login .al-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+  font-size: 12.5px;
+  color: var(--mut);
+}
+
+@media (max-width: 860px) {
+  .admin-login {
+    grid-template-columns: 1fr;
+  }
+  .admin-login .al-brand {
+    display: none;
+  }
+  .admin-login .al-mobilelogo {
+    display: grid;
+    place-items: center;
+    margin-bottom: 18px;
+  }
+  .admin-login .al-mobilelogo .badge {
+    width: 60px;
+    height: 60px;
+    border-radius: 15px;
+    background: #fff;
+    padding: 6px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    box-shadow: 0 10px 30px -10px rgba(7, 26, 43, 0.35);
+  }
+  .admin-login .al-mobilelogo .badge img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .admin-login .al-card {
+    text-align: center;
+  }
+  .admin-login .al-form-wrap {
+    padding-top: 76px;
+  }
+  .admin-login input {
+    font-size: 16px;
   }
 }
