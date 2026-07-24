@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Icon } from '../components/Icon'
+import { Avatar } from '../components/Avatar'
 import { T, useLang } from '../i18n/LangContext'
 import { API, clearSession, getUser } from '../lib/api'
 import { ToastProvider } from './dashboard/ui'
@@ -129,11 +130,7 @@ export default function Dashboard() {
             </div>
             <div className="top-actions">
               <span className="pill"><span className="dot" /><T k="bot_live" /></span>
-              <img
-                src="https://ui-avatars.com/api/?name=Al+Noor&background=0FBE8F&color=03271B&bold=true"
-                style={{ width: 38, height: 38, borderRadius: '50%' }}
-                alt=""
-              />
+              <Avatar name={user.business_name || 'Al Noor'} size={38} variant="solid" />
             </div>
           </div>
 

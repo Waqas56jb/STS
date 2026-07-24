@@ -3,7 +3,9 @@ import { palette } from '../../lib/charts'
 
 const gridY = { grid: { color: '#EDF1F5' } }
 const gridXoff = { grid: { display: false } }
-const gold = '#F5A623'
+// secondary series colour (was gold) — a neutral slate to match the
+// client's green/navy theme
+const gold = '#94A3B8'
 
 export function RevenueChart() {
   const data = {

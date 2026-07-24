@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { Avatar } from '../../components/Avatar'
 import { useLang } from '../../i18n/LangContext'
 import { API } from '../../lib/api'
 import { chIcon, demoConvs } from '../../data/demo'
@@ -160,11 +161,9 @@ export function Inbox() {
       <div className="cust">
         {active && (
           <>
-            <img
-              className="avatar"
-              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(active.name)}&background=EAF9F3&color=0A9873&bold=true`}
-              alt=""
-            />
+            <div style={{ textAlign: 'center', marginBottom: 12 }}>
+              <Avatar name={active.name} size={64} />
+            </div>
             <h4>{active.name}</h4>
             <div className="tagline">{active.phone}</div>
             <div className="kv"><span>{isAr ? 'القناة' : 'Channel'}</span><span style={{ textTransform: 'capitalize' }}>{active.ch}</span></div>

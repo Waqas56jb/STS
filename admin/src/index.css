@@ -58,7 +58,7 @@ textarea {
   font-family: var(--body);
 }
 :focus-visible {
-  outline: 2px solid var(--gold);
+  outline: 2px solid var(--lagoon);
   outline-offset: 2px;
 }
 
@@ -106,7 +106,7 @@ textarea {
   min-height: 100vh;
 }
 .admin aside {
-  background: linear-gradient(180deg, #0a2036, var(--ink));
+  background: var(--ink);
   color: #fff;
   padding: 22px 16px;
   display: flex;
@@ -138,15 +138,15 @@ textarea {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--gold), #f58529);
+  background: linear-gradient(135deg, var(--lagoon), var(--wa) 55%, var(--vc));
   display: grid;
   place-items: center;
-  color: #231303;
+  color: #04270f;
 }
 .admin .admin-tag {
   font-size: 10px;
   letter-spacing: 0.16em;
-  color: var(--gold);
+  color: var(--lagoon);
   font-weight: 800;
   padding: 0 8px;
   margin-bottom: 24px;
@@ -181,8 +181,8 @@ html[dir='rtl'] .admin .admin-tag {
   background: rgba(255, 255, 255, 0.07);
 }
 .admin .nav-item.on {
-  background: var(--gold);
-  color: #231303;
+  background: var(--lagoon);
+  color: #03271b;
   font-weight: 700;
 }
 .admin .nav-item .cnt {
@@ -256,8 +256,12 @@ html[dir='rtl'] .admin .admin-tag {
   background: #fca5a5;
 }
 .admin .btn-gold {
-  background: var(--gold);
-  color: #231303;
+  background: var(--lagoon);
+  color: #03271b;
+}
+.admin .btn-gold:hover {
+  background: var(--lagoon-d);
+  color: #fff;
 }
 .admin .grid {
   display: grid;
@@ -316,7 +320,7 @@ html[dir='rtl'] .admin .admin-tag {
 .admin .card h3 svg {
   width: 17px;
   height: 17px;
-  color: var(--gold);
+  color: var(--lagoon);
 }
 .admin table {
   width: 100%;
@@ -424,9 +428,9 @@ html[dir='rtl'] .admin th {
 .admin .field input:focus,
 .admin .field select:focus {
   outline: none;
-  border-color: var(--gold);
+  border-color: var(--lagoon);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.15);
+  box-shadow: 0 0 0 3px rgba(15, 190, 143, 0.12);
 }
 .admin .toolbar {
   display: flex;

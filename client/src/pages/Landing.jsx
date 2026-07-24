@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { Reveal } from '../components/Reveal'
+import { ShowcaseMock } from '../components/ShowcaseMocks'
 import { T, useLang } from '../i18n/LangContext'
 import { useScrolled } from '../hooks/useScrolled'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
 import { apiPost, saveSession, WHATSAPP } from '../lib/api'
 import { priceData, priceTabs } from '../data/pricing'
 
@@ -15,24 +17,9 @@ const services = [
 ]
 
 const showcases = [
-  {
-    eye: 'sh1e', h: 'sh1h', p: 'sh1p', flip: false,
-    li: ['sh1l1', 'sh1l2', 'sh1l3'],
-    img: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=1200&auto=format&fit=crop',
-    alt: 'Unified analytics dashboard',
-  },
-  {
-    eye: 'sh2e', h: 'sh2h', p: 'sh2p', flip: true,
-    li: ['sh2l1', 'sh2l2', 'sh2l3'],
-    img: 'https://images.unsplash.com/photo-1531482615713-2afd69097998?q=80&w=1200&auto=format&fit=crop',
-    alt: 'Team training an AI assistant',
-  },
-  {
-    eye: 'sh3e', h: 'sh3h', p: 'sh3p', flip: false,
-    li: ['sh3l1', 'sh3l2', 'sh3l3'],
-    img: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=1200&auto=format&fit=crop',
-    alt: 'Business reports and charts',
-  },
+  { eye: 'sh1e', h: 'sh1h', p: 'sh1p', flip: false, li: ['sh1l1', 'sh1l2', 'sh1l3'], mock: 'inbox' },
+  { eye: 'sh2e', h: 'sh2h', p: 'sh2p', flip: true, li: ['sh2l1', 'sh2l2', 'sh2l3'], mock: 'train' },
+  { eye: 'sh3e', h: 'sh3h', p: 'sh3p', flip: false, li: ['sh3l1', 'sh3l2', 'sh3l3'], mock: 'reports' },
 ]
 
 const steps = [
@@ -50,34 +37,72 @@ const why = [
   { icon: 'languages', h: 'w6h', p: 'w6p' },
 ]
 
+const NAV_LINKS = [
+  { href: '#services', k: 'nav_services' },
+  { href: '#how', k: 'nav_how' },
+  { href: '#pricing', k: 'nav_pricing' },
+  { href: '#request', k: 'nav_contact' },
+]
+
 /* ---------------- Nav ---------------- */
 function Nav({ onLogin }) {
   const scrolled = useScrolled(30)
   const { toggle, isAr } = useLang()
+  const [menuOpen, setMenuOpen] = useState(false)
+  useLockBodyScroll(menuOpen)
+
+  const close = () => setMenuOpen(false)
+
   return (
     <nav className={scrolled ? 'scrolled' : ''}>
       <div className="wrap nav-in">
-        <a className="logo" href="#top">
+        <a className="logo" href="#top" onClick={close}>
           <span className="logo-mark">
             <Icon name="messages-square" />
           </span>
           STS
         </a>
         <div className="nav-links">
-          <a href="#services"><T k="nav_services" /></a>
-          <a href="#how"><T k="nav_how" /></a>
-          <a href="#pricing"><T k="nav_pricing" /></a>
-          <a href="#request"><T k="nav_contact" /></a>
+          {NAV_LINKS.map((l) => (
+            <a key={l.href} href={l.href}><T k={l.k} /></a>
+          ))}
         </div>
         <div className="nav-cta">
-          <button className="lang-sw" onClick={toggle}>{isAr ? 'EN' : 'عربي'}</button>
-          <button className="btn btn-ghost" style={{ padding: '9px 20px' }} onClick={onLogin}>
+          <button className="lang-sw nav-desktop" onClick={toggle}>{isAr ? 'EN' : 'عربي'}</button>
+          <button className="btn btn-ghost nav-desktop" style={{ padding: '9px 20px' }} onClick={onLogin}>
             <T k="nav_login" />
           </button>
-          <a className="btn btn-wa" style={{ padding: '9px 20px' }} href={WHATSAPP} target="_blank" rel="noreferrer">
+          <a className="btn btn-wa nav-desktop" style={{ padding: '9px 20px' }} href={WHATSAPP} target="_blank" rel="noreferrer">
             <Icon name="message-circle" size={17} />
             <T k="wa_us" />
           </a>
+          <button
+            className="burger"
+            aria-label="Menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <Icon name={menuOpen ? 'x' : 'menu'} size={24} />
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile menu */}
+      <div className={`mobile-menu ${menuOpen ? 'open' : ''}`}>
+        <div className="mm-links">
+          {NAV_LINKS.map((l) => (
+            <a key={l.href} href={l.href} onClick={close}><T k={l.k} /></a>
+          ))}
+        </div>
+        <div className="mm-actions">
+          <a className="btn btn-wa" href={WHATSAPP} target="_blank" rel="noreferrer" onClick={close}>
+            <Icon name="message-circle" size={18} />
+            <T k="wa_us" />
+          </a>
+          <button className="btn btn-ghost" onClick={() => { close(); onLogin() }}>
+            <T k="nav_login" />
+          </button>
+          <button className="lang-sw mm-lang" onClick={toggle}>{isAr ? 'English' : 'العربية'}</button>
         </div>
       </div>
     </nav>
@@ -349,7 +374,7 @@ export default function Landing() {
                   ))}
                 </ul>
               </div>
-              <div className="show-img"><img src={sc.img} alt={sc.alt} loading="lazy" /></div>
+              <div className="show-img"><ShowcaseMock kind={sc.mock} /></div>
             </Reveal>
           ))}
         </div>

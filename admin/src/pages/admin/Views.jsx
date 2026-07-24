@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { Avatar } from '../../components/Avatar'
 import { useAdminT } from '../../i18n/admin'
 import { WHATSAPP } from '../../lib/api'
 import {
@@ -97,7 +98,7 @@ export function Users({ users, onToggle }) {
               <tr key={u.id}>
                 <td>
                   <div className="uc">
-                    <img className="avatar-s" src={`https://ui-avatars.com/api/?name=${encodeURIComponent(u.biz)}&background=EAF9F3&color=0A9873&bold=true`} alt="" />
+                    <Avatar name={u.biz} size={32} className="avatar-s" />
                     <div><b>{u.biz}</b><span>{u.email}</span></div>
                   </div>
                 </td>
