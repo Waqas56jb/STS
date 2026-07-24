@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STS — Admin Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+:root{
+ --ink:#071A2B;--ink-2:#0C2A44;--lagoon:#0FBE8F;--lagoon-d:#0A9873;
+ --bg:#F4F6F9;--card:#fff;--line:#E5E9EF;--mut:#5C6B7C;
+ --gold:#F5A623;--wa:#25D366;--igB:#DD2A7B;--vc:#5B8DEF;
+ --disp:'Sora',sans-serif;--body:'Inter',sans-serif;
+}
+html[dir="rtl"]{--disp:'IBM Plex Sans Arabic',sans-serif;--body:'IBM Plex Sans Arabic',sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.55}
+h1,h2,h3,h4{font-family:var(--disp)}
+button{font-family:var(--body);cursor:pointer}
+input,select,textarea{font-family:var(--body)}
+.app{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+aside{background:linear-gradient(180deg,#0A2036,var(--ink));color:#fff;padding:22px 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--disp);font-weight:800;font-size:20px;padding:0 8px;margin-bottom:6px}
+.logo-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--gold),#F58529);display:grid;place-items:center;color:#231303}
+.admin-tag{font-size:10px;letter-spacing:.16em;color:var(--gold);font-weight:800;padding:0 8px;margin-bottom:24px}
+html[dir="rtl"] .admin-tag{letter-spacing:0}
+.nav-item{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:11px;color:rgba(255,255,255,.65);font-weight:500;border:none;background:none;width:100%;text-align:start;font-size:13.5px;margin-bottom:3px;transition:.2s}
+.nav-item i{width:18px;height:18px}
+.nav-item:hover{color:#fff;background:rgba(255,255,255,.07)}
+.nav-item.on{background:var(--gold);color:#231303;font-weight:700}
+.nav-item .cnt{margin-inline-start:auto;background:#DC2626;color:#fff;border-radius:999px;font-size:10.5px;font-weight:800;padding:1px 8px}
+.side-foot{margin-top:auto;border-top:1px solid rgba(255,255,255,.1);padding-top:14px}
+main{padding:26px 30px}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px;gap:14px;flex-wrap:wrap}
+.topbar h1{font-size:22px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:11px;font-weight:600;font-size:13.5px;border:none;transition:.2s}
+.btn-p{background:var(--ink);color:#fff}.btn-p:hover{background:var(--ink-2)}
+.btn-g{background:var(--lagoon);color:#03271B}.btn-g:hover{background:var(--lagoon-d);color:#fff}
+.btn-o{background:#fff;border:1px solid var(--line);color:var(--ink)}.btn-o:hover{border-color:var(--ink)}
+.btn-r{background:#FEE2E2;color:#991B1B}.btn-r:hover{background:#FCA5A5}
+.btn-gold{background:var(--gold);color:#231303}
+.grid{display:grid;gap:18px}
+.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:repeat(2,1fr)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+.stat .lbl{font-size:12.5px;color:var(--mut);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.stat .lbl i{width:17px;height:17px}
+.stat .val{font-family:var(--disp);font-size:27px;font-weight:800;margin:6px 0 2px}
+.stat .trend{font-size:12px;font-weight:700;color:var(--lagoon-d)}
+.stat .trend.bad{color:#DC2626}
+.card h3{font-size:15px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card h3 i{width:17px;height:17px;color:var(--gold)}
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);text-align:start;padding:10px 12px;border-bottom:1px solid var(--line)}
+html[dir="rtl"] th{letter-spacing:0}
+td{padding:12px;border-bottom:1px solid #F0F3F6;font-size:13px;vertical-align:middle}
+.badge{display:inline-block;border-radius:999px;padding:3px 11px;font-size:11px;font-weight:800}
+.b-ok{background:#E8FBF4;color:#065F46}.b-warn{background:#FEF3C7;color:#92400E}.b-bad{background:#FEE2E2;color:#991B1B}.b-info{background:#E0EAFF;color:#3730A3}.b-free{background:#F1F5F9;color:#475569}
+.avatar-s{width:32px;height:32px;border-radius:50%;vertical-align:middle}
+.uc{display:flex;align-items:center;gap:10px}
+.uc b{display:block;font-size:13px}.uc span{font-size:11.5px;color:var(--mut)}
+.view{display:none;animation:fade .3s}.view.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}}
+.chart-box{position:relative;height:280px}
+.field{margin-bottom:15px}
+.field label{display:block;font-size:12px;font-weight:700;margin-bottom:6px;color:#33475B}
+.field input,.field select,.field textarea{width:100%;border:1.5px solid var(--line);border-radius:11px;padding:11px 13px;font-size:13.5px;background:#FAFBFC}
+.field input:focus,.field select:focus{outline:none;border-color:var(--gold);background:#fff;box-shadow:0 0 0 3px rgba(245,166,35,.15)}
+.toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.toolbar input,.toolbar select{border:1px solid var(--line);border-radius:10px;padding:9px 13px;font-size:13px;background:#fff}
+.toolbar input{flex:1;min-width:180px}
+.modal{position:fixed;inset:0;z-index:200;display:none;place-items:center;background:rgba(7,26,43,.6);backdrop-filter:blur(6px)}
+.modal.open{display:grid}
+.modal-card{background:#fff;border-radius:20px;padding:32px;width:min(460px,92vw);position:relative;animation:fade .3s;max-height:88vh;overflow-y:auto}
+.modal-x{position:absolute;top:16px;inset-inline-end:16px;background:none;border:none;color:var(--mut)}
+.req-card{border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+.req-card .rh{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px}
+.req-card b{font-size:14.5px}
+.req-card .meta{font-size:12px;color:var(--mut)}
+.req-card p{font-size:13px;background:#F7F9FB;border-radius:10px;padding:10px 13px;margin:10px 0}
+.req-card .acts{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:1100px){.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:860px){.app{grid-template-columns:1fr}aside{position:fixed;inset-inline-start:-260px;z-index:60;transition:.3s;width:248px}aside.open{inset-inline-start:0}.g3,.g2{grid-template-columns:1fr}.burger{display:inline-flex}}
+.burger{display:none;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px}
+</style>
+</head>
+<body>
+<div class="app">
+
+<aside id="side">
+ <div class="logo"><span class="logo-mark"><i data-lucide="shield"></i></span>STS</div>
+ <div class="admin-tag" data-i18n="adm_tag">ADMIN CONTROL</div>
+ <button class="nav-item on" data-v="overview"><i data-lucide="layout-dashboard"></i><span data-i18n="n_over">Overview</span></button>
+ <button class="nav-item" data-v="requests"><i data-lucide="user-plus"></i><span data-i18n="n_req">Access Requests</span><span class="cnt" id="reqCnt">3</span></button>
+ <button class="nav-item" data-v="users"><i data-lucide="users"></i><span data-i18n="n_users">Businesses & Users</span></button>
+ <button class="nav-item" data-v="payments"><i data-lucide="credit-card"></i><span data-i18n="n_pay">Payments</span></button>
+ <button class="nav-item" data-v="invoices"><i data-lucide="receipt"></i><span data-i18n="n_inv">Invoices</span></button>
+ <button class="nav-item" data-v="plans"><i data-lucide="package"></i><span data-i18n="n_plans">Plans & Pricing</span></button>
+ <button class="nav-item" data-v="analytics"><i data-lucide="bar-chart-3"></i><span data-i18n="n_an">Analytics</span></button>
+ <button class="nav-item" data-v="settings"><i data-lucide="settings"></i><span data-i18n="n_set">Settings</span></button>
+ <div class="side-foot">
+  <button class="nav-item" onclick="toggleLang()"><i data-lucide="languages"></i><span id="langLbl">عربي</span></button>
+  <button class="nav-item" onclick="logout()"><i data-lucide="log-out"></i><span data-i18n="n_out">Log out</span></button>
+ </div>
+</aside>
+
+<main>
+ <div class="topbar">
+  <div style="display:flex;gap:12px;align-items:center">
+   <button class="burger" onclick="document.getElementById('side').classList.toggle('open')"><i data-lucide="menu"></i></button>
+   <div><h1 id="viewTitle" data-i18n="n_over">Overview</h1><div style="color:var(--mut);font-size:13px" data-i18n="adm_sub">Top-level view of all businesses on STS</div></div>
+  </div>
+  <button class="btn btn-gold" onclick="openAdd()"><i data-lucide="plus" style="width:16px"></i><span data-i18n="add_biz">Add business</span></button>
+ </div>
+
+ <!-- ===== OVERVIEW ===== -->
+ <div class="view on" id="v-overview">
+  <div class="grid g4" style="margin-bottom:18px">
+   <div class="card stat"><div class="lbl"><span data-i18n="k_mrr">Monthly revenue (MRR)</span><i data-lucide="banknote"></i></div><div class="val">2,847 <small style="font-size:14px">KWD</small></div><div class="trend">▲ 18% <span data-i18n="vs_lm">vs last month</span></div></div>
+   <div class="card stat"><div class="lbl"><span data-i18n="k_paid">Paid businesses</span><i data-lucide="crown"></i></div><div class="val">31</div><div class="trend">▲ 4 <span data-i18n="this_mo">this month</span></div></div>
+   <div class="card stat"><div class="lbl"><span data-i18n="k_free">Free / trial</span><i data-lucide="user"></i></div><div class="val">12</div><div class="trend" data-i18n="k_conv">5 ready to convert</div></div>
+   <div class="card stat"><div class="lbl"><span data-i18n="k_due">Overdue invoices</span><i data-lucide="alert-triangle"></i></div><div class="val">2</div><div class="trend bad">193 KWD <span data-i18n="pending">pending</span></div></div>
+  </div>
+  <div class="grid g2" style="margin-bottom:18px">
+   <div class="card"><h3><i data-lucide="trending-up"></i><span data-i18n="ch_rev">Revenue — last 6 months (KWD)</span></h3><div class="chart-box"><canvas id="chRev"></canvas></div></div>
+   <div class="card"><h3><i data-lucide="users"></i><span data-i18n="ch_growth">Paid vs free growth</span></h3><div class="chart-box"><canvas id="chGrowth"></canvas></div></div>
+  </div>
+  <div class="grid g2">
+   <div class="card"><h3><i data-lucide="pie-chart"></i><span data-i18n="ch_plan">Revenue by plan</span></h3><div class="chart-box"><canvas id="chPlan"></canvas></div></div>
+   <div class="card"><h3><i data-lucide="activity"></i><span data-i18n="ch_msg">Platform messages / day</span></h3><div class="chart-box"><canvas id="chMsg"></canvas></div></div>
+  </div>
+ </div>
+
+ <!-- ===== ACCESS REQUESTS ===== -->
+ <div class="view" id="v-requests">
+  <div class="card">
+   <h3><i data-lucide="user-plus"></i><span data-i18n="rq_new">New access requests</span></h3>
+   <div id="reqList"></div>
+  </div>
+ </div>
+
+ <!-- ===== USERS ===== -->
+ <div class="view" id="v-users">
+  <div class="card">
+   <div class="toolbar">
+    <input id="userSearch" data-i18n-ph="srch_u" placeholder="Search businesses…" oninput="renderUsers()">
+    <select id="userFilter" onchange="renderUsers()">
+     <option value="all" data-i18n="f_all">All</option>
+     <option value="paid" data-i18n="paid">Paid</option>
+     <option value="free" data-i18n="free">Free</option>
+     <option value="suspended" data-i18n="susp">Suspended</option>
+    </select>
+   </div>
+   <table><thead><tr><th data-i18n="th_biz">Business</th><th data-i18n="th_plan">Plan</th><th data-i18n="th_ch">Channels</th><th data-i18n="th_mrr">MRR</th><th data-i18n="th_st">Status</th><th data-i18n="th_act">Actions</th></tr></thead>
+   <tbody id="userRows"></tbody></table>
+  </div>
+ </div>
+
+ <!-- ===== PAYMENTS ===== -->
+ <div class="view" id="v-payments">
+  <div class="grid g3" style="margin-bottom:18px">
+   <div class="card stat"><div class="lbl"><span data-i18n="p_col">Collected this month</span><i data-lucide="check-circle-2"></i></div><div class="val">2,654 <small style="font-size:14px">KWD</small></div></div>
+   <div class="card stat"><div class="lbl"><span data-i18n="pending">Pending</span><i data-lucide="clock"></i></div><div class="val">193 <small style="font-size:14px">KWD</small></div></div>
+   <div class="card stat"><div class="lbl"><span data-i18n="p_fail">Failed / refunded</span><i data-lucide="x-circle"></i></div><div class="val">48 <small style="font-size:14px">KWD</small></div></div>
+  </div>
+  <div class="card">
+   <h3><i data-lucide="credit-card"></i><span data-i18n="p_recent">Recent payments</span></h3>
+   <table><thead><tr><th data-i18n="th_ref">Reference</th><th data-i18n="th_biz">Business</th><th data-i18n="th_meth">Method</th><th data-i18n="th_amt">Amount</th><th data-i18n="th_date">Date</th><th data-i18n="th_st">Status</th></tr></thead>
+   <tbody id="payRows"></tbody></table>
+  </div>
+ </div>
+
+ <!-- ===== INVOICES ===== -->
+ <div class="view" id="v-invoices">
+  <div class="card">
+   <div class="toolbar">
+    <input data-i18n-ph="srch_i" placeholder="Search invoices…">
+    <select><option data-i18n="f_all">All</option><option data-i18n="paid">Paid</option><option data-i18n="unpaid">Unpaid</option><option data-i18n="overdue">Overdue</option></select>
+    <button class="btn btn-p" onclick="toast()"><i data-lucide="plus" style="width:15px"></i><span data-i18n="new_inv">New invoice</span></button>
+   </div>
+   <table><thead><tr><th data-i18n="th_no">Invoice #</th><th data-i18n="th_biz">Business</th><th data-i18n="th_desc">Description</th><th data-i18n="th_amt">Amount</th><th data-i18n="th_due">Due</th><th data-i18n="th_st">Status</th><th></th></tr></thead>
+   <tbody id="invRows"></tbody></table>
+  </div>
+ </div>
+
+ <!-- ===== PLANS ===== -->
+ <div class="view" id="v-plans">
+  <div class="card">
+   <h3><i data-lucide="package"></i><span data-i18n="pl_h">Plans & pricing (KWD / month)</span></h3>
+   <table><thead><tr><th data-i18n="th_plan">Plan</th><th data-i18n="th_cat">Category</th><th data-i18n="th_quota">Quota</th><th data-i18n="th_price">Price</th><th data-i18n="th_subs">Subscribers</th><th></th></tr></thead>
+   <tbody id="planRows"></tbody></table>
+  </div>
+ </div>
+
+ <!-- ===== ANALYTICS ===== -->
+ <div class="view" id="v-analytics">
+  <div class="grid g2" style="margin-bottom:18px">
+   <div class="card"><h3><i data-lucide="trending-up"></i><span data-i18n="an_arpu">ARPU & churn</span></h3><div class="chart-box"><canvas id="chArpu"></canvas></div></div>
+   <div class="card"><h3><i data-lucide="bar-chart-3"></i><span data-i18n="an_ch">Usage by channel (platform-wide)</span></h3><div class="chart-box"><canvas id="chUse"></canvas></div></div>
+  </div>
+  <div class="card"><h3><i data-lucide="trophy"></i><span data-i18n="an_top">Top businesses by usage</span></h3>
+   <table><thead><tr><th data-i18n="th_biz">Business</th><th data-i18n="th_msgs">Messages</th><th data-i18n="th_min">Voice min</th><th data-i18n="th_ai">AI resolution</th><th data-i18n="th_mrr">MRR</th></tr></thead><tbody>
+    <tr><td>Al Noor Perfumes</td><td>5,517</td><td>512</td><td><span class="badge b-ok">86%</span></td><td>145 KWD</td></tr>
+    <tr><td>Shgardi Auto</td><td>4,890</td><td>804</td><td><span class="badge b-ok">91%</span></td><td>349 KWD</td></tr>
+    <tr><td>Dar Al Teeb</td><td>3,204</td><td>—</td><td><span class="badge b-ok">88%</span></td><td>76 KWD</td></tr>
+    <tr><td>Kuwait Dental Co.</td><td>2,911</td><td>377</td><td><span class="badge b-warn">74%</span></td><td>145 KWD</td></tr>
+   </tbody></table></div>
+ </div>
+
+ <!-- ===== SETTINGS ===== -->
+ <div class="view" id="v-settings">
+  <div class="grid g2">
+   <div class="card">
+    <h3><i data-lucide="settings"></i><span data-i18n="se_pl">Platform settings</span></h3>
+    <div class="field"><label data-i18n="se_wa">Support WhatsApp number</label><input value="+965 0000 0000"></div>
+    <div class="field"><label data-i18n="se_em">Support email</label><input value="sts@shgardiauto.com"></div>
+    <div class="field"><label data-i18n="se_cur">Currency</label><select><option>KWD</option><option>USD</option></select></div>
+    <button class="btn btn-g" onclick="toast()"><i data-lucide="save" style="width:16px"></i><span data-i18n="save">Save changes</span></button>
+   </div>
+   <div class="card">
+    <h3><i data-lucide="key-round"></i><span data-i18n="se_keys">Integration keys (managed centrally)</span></h3>
+    <div class="field"><label>Meta App ID</label><input value="10933•••••••" type="password"></div>
+    <div class="field"><label>OpenAI API Key</label><input value="sk-•••••••••••" type="password"></div>
+    <div class="field"><label>Twilio SID</label><input value="AC59•••••••••" type="password"></div>
+    <div class="field"><label>ElevenLabs Key</label><input value="el_••••••••••" type="password"></div>
+    <button class="btn btn-p" onclick="toast()"><i data-lucide="save" style="width:16px"></i><span data-i18n="save">Save changes</span></button>
+   </div>
+  </div>
+ </div>
+</main>
+</div>
+
+<!-- ADD/EDIT BUSINESS MODAL -->
+<div class="modal" id="bizModal" onclick="if(event.target===this)closeAdd()">
+ <div class="modal-card">
+  <button class="modal-x" onclick="closeAdd()"><i data-lucide="x"></i></button>
+  <h3 style="margin-bottom:4px" data-i18n="ad_h">Add / onboard business</h3>
+  <p style="color:var(--mut);font-size:13px;margin-bottom:20px" data-i18n="ad_p">Creates the client account and dashboard access. Channel connection is done after via the Meta setup checklist.</p>
+  <form onsubmit="return createBiz(event)">
+   <div class="field"><label data-i18n="f_biz">Business name</label><input required name="business_name" placeholder="Dar Al Teeb"></div>
+   <div class="field"><label data-i18n="f_owner">Owner name</label><input required name="owner_name" placeholder="Mohammed A."></div>
+   <div class="field"><label data-i18n="f_email">Login email</label><input required type="email" name="email" placeholder="owner@business.com"></div>
+   <div class="field"><label data-i18n="f_wa">WhatsApp number</label><input name="whatsapp" placeholder="+965 5xxx xxxx"></div>
+   <div class="field"><label data-i18n="th_plan">Plan</label>
+    <select name="plan_code">
+     <option value="wa_starter">WhatsApp Starter — 20 KWD</option>
+     <option value="wa_growth">WhatsApp Growth — 25 KWD</option>
+     <option value="wa_pro">WhatsApp Pro — 34.90 KWD</option>
+     <option value="ig_starter">Instagram Starter — 20 KWD</option>
+     <option value="ig_growth">Instagram Growth — 32 KWD</option>
+     <option value="ig_business">Instagram Business — 55 KWD</option>
+     <option value="voice_starter">Voice Starter — 39 KWD</option>
+     <option value="voice_standard">Voice Standard — 119 KWD</option>
+     <option value="voice_premium">Voice Premium — 329 KWD</option>
+     <option value="social_starter">Social Starter — 34 KWD</option>
+     <option value="social_growth">Social Growth — 48 KWD</option>
+     <option value="social_pro">Social Pro — 76 KWD</option>
+     <option value="complete_starter">Complete Starter — 65 KWD</option>
+     <option value="complete_growth">Complete Growth — 145 KWD</option>
+     <option value="complete_pro">Complete Pro — 349 KWD</option>
+     <option value="free">Free / Trial — 0 KWD</option>
+    </select></div>
+   <div class="field"><label data-i18n="f_pass">Temporary password</label><input required name="password" value="Sts@2026!"></div>
+   <button class="btn btn-g" style="width:100%;justify-content:center"><i data-lucide="user-check" style="width:16px"></i><span data-i18n="ad_btn">Create account</span></button>
+  </form>
+ </div>
+</div>
+
+<div id="toast" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:#fff;padding:12px 22px;border-radius:12px;font-weight:600;font-size:13.5px;transition:.3s;z-index:99;opacity:0">Done ✓</div>
+
+<script>
+const API = window.STS_API || 'http://localhost:4000/api';
+const token = localStorage.getItem('sts_token');
+
+/* ---------- i18n ---------- */
+const AR = {
+ adm_tag:"لوحة تحكم المدير",n_over:"نظرة عامة",n_req:"طلبات الانضمام",n_users:"الأنشطة والمستخدمون",n_pay:"المدفوعات",n_inv:"الفواتير",n_plans:"الباقات والأسعار",n_an:"التحليلات",n_set:"الإعدادات",n_out:"تسجيل الخروج",
+ adm_sub:"نظرة شاملة على جميع الأنشطة في STS",add_biz:"إضافة نشاط",
+ k_mrr:"الإيراد الشهري",k_paid:"أنشطة مدفوعة",k_free:"مجاني / تجريبي",k_due:"فواتير متأخرة",k_conv:"5 جاهزون للتحويل",vs_lm:"عن الشهر الماضي",this_mo:"هذا الشهر",pending:"معلّق",
+ ch_rev:"الإيرادات — آخر 6 أشهر (د.ك)",ch_growth:"نمو المدفوع مقابل المجاني",ch_plan:"الإيرادات حسب الباقة",ch_msg:"رسائل المنصة / يوم",
+ rq_new:"طلبات انضمام جديدة",approve:"موافقة وإنشاء حساب",reject:"رفض",wa_reply:"رد واتساب",
+ srch_u:"ابحث في الأنشطة…",f_all:"الكل",paid:"مدفوع",free:"مجاني",susp:"موقوف",unpaid:"غير مدفوع",overdue:"متأخر",
+ th_biz:"النشاط",th_plan:"الباقة",th_ch:"القنوات",th_mrr:"الإيراد",th_st:"الحالة",th_act:"إجراءات",th_ref:"المرجع",th_meth:"الطريقة",th_amt:"المبلغ",th_date:"التاريخ",th_no:"رقم الفاتورة",th_desc:"الوصف",th_due:"الاستحقاق",th_cat:"الفئة",th_quota:"الحصة",th_price:"السعر",th_subs:"المشتركون",th_msgs:"الرسائل",th_min:"دقائق الصوت",th_ai:"حل الذكاء",
+ p_col:"المحصّل هذا الشهر",p_fail:"فشل / مسترد",p_recent:"مدفوعات حديثة",new_inv:"فاتورة جديدة",srch_i:"ابحث في الفواتير…",
+ pl_h:"الباقات والأسعار (د.ك / شهرياً)",edit:"تعديل",
+ an_arpu:"متوسط الإيراد لكل عميل ونسبة التسرب",an_ch:"الاستخدام حسب القناة (كامل المنصة)",an_top:"أعلى الأنشطة استخداماً",
+ se_pl:"إعدادات المنصة",se_wa:"رقم واتساب الدعم",se_em:"بريد الدعم",se_cur:"العملة",se_keys:"مفاتيح التكامل (تُدار مركزياً)",save:"حفظ التغييرات",
+ ad_h:"إضافة / تجهيز نشاط",ad_p:"ينشئ حساب العميل والوصول للوحة. ربط القنوات يتم لاحقاً عبر قائمة إعداد ميتا.",f_biz:"اسم النشاط",f_owner:"اسم المالك",f_email:"بريد الدخول",f_wa:"رقم الواتساب",f_pass:"كلمة مرور مؤقتة",ad_btn:"إنشاء الحساب",
+ view_lbl:"عرض",send:"إرسال",remind:"تذكير",suspend:"إيقاف",activate:"تفعيل",login_as:"دخول كعميل"
+};
+let EN={};document.querySelectorAll('[data-i18n]').forEach(el=>EN[el.dataset.i18n]=el.innerHTML);
+document.querySelectorAll('[data-i18n-ph]').forEach(el=>EN[el.dataset.i18nPh]=el.placeholder);
+['approve','reject','wa_reply','edit','view_lbl','send','remind','suspend','activate','login_as'].forEach(k=>{if(!EN[k])EN[k]={approve:'Approve & create account',reject:'Reject',wa_reply:'Reply on WhatsApp',edit:'Edit',view_lbl:'View',send:'Send',remind:'Remind',suspend:'Suspend',activate:'Activate',login_as:'Login as client'}[k]});
+let lang=localStorage.getItem('sts_lang')||'en';
+const T=k=>(lang==='ar'?AR[k]:EN[k])||k;
+function applyLang(){
+ const d=lang==='ar'?AR:EN;
+ document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';
+ document.getElementById('langLbl').textContent=lang==='ar'?'English':'عربي';
+ document.querySelectorAll('[data-i18n]').forEach(el=>{if(d[el.dataset.i18n]!==undefined)el.innerHTML=d[el.dataset.i18n]});
+ document.querySelectorAll('[data-i18n-ph]').forEach(el=>{if(d[el.dataset.i18nPh]!==undefined)el.placeholder=d[el.dataset.i18nPh]});
+ renderReqs();renderUsers();renderPays();renderInvs();renderPlans();
+ lucide.createIcons();
+}
+function toggleLang(){lang=lang==='en'?'ar':'en';localStorage.setItem('sts_lang',lang);applyLang()}
+
+/* ---------- navigation ---------- */
+document.querySelectorAll('.nav-item[data-v]').forEach(b=>b.addEventListener('click',()=>{
+ document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('on'));
+ document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+ b.classList.add('on');document.getElementById('v-'+b.dataset.v).classList.add('on');
+ document.getElementById('viewTitle').innerHTML=b.querySelector('span').innerHTML;
+ document.getElementById('side').classList.remove('open');
+ lucide.createIcons();
+}));
+
+/* ---------- demo data (replaced by API when server is live) ---------- */
+let requests=[
+ {id:1,business_name:'Lulu Flowers KW',contact_name:'Noura S.',email:'noura@luluflowers.com',whatsapp:'+965 66x 1189',interested_plan:'bundle_social',message:'We get 100+ Instagram DMs a day and miss most of them. Need auto-replies in Arabic and English.',created:'Today, 09:12'},
+ {id:2,business_name:'Q8 Fitness Hub',contact_name:'Bader A.',email:'bader@q8fitness.com',whatsapp:'+965 99x 5521',interested_plan:'bundle_complete',message:'Want WhatsApp bot for class bookings plus a voice agent to answer calls about membership.',created:'Yesterday, 18:40'},
+ {id:3,business_name:'Mama Ghanima Kitchen',contact_name:'Ghanima F.',email:'orders@mamaghanima.com',whatsapp:'+965 55x 7710',interested_plan:'whatsapp',message:'Daily menu orders on WhatsApp are overwhelming us. Can the bot take orders?',created:'2 days ago'}
+];
+let users=[
+ {id:1,biz:'Al Noor Perfumes',email:'owner@alnoorperfumes.com',plan:'Complete Growth',mrr:145,ch:['wa','ig','vc'],status:'paid'},
+ {id:2,biz:'Shgardi Auto',email:'sts@shgardiauto.com',plan:'Complete Pro',mrr:349,ch:['wa','ig','vc'],status:'paid'},
+ {id:3,biz:'Dar Al Teeb',email:'info@daralteeb.com',plan:'Social Pro',mrr:76,ch:['wa','ig'],status:'paid'},
+ {id:4,biz:'Kuwait Dental Co.',email:'admin@kwdental.com',plan:'Complete Growth',mrr:145,ch:['wa','ig','vc'],status:'paid'},
+ {id:5,biz:'Bayt Al Halwa',email:'hala@baytalhalwa.com',plan:'WhatsApp Growth',mrr:25,ch:['wa'],status:'paid'},
+ {id:6,biz:'Marina Cafe',email:'mgr@marinacafe.kw',plan:'Free / Trial',mrr:0,ch:['wa'],status:'free'},
+ {id:7,biz:'Zahra Boutique',email:'zahra@zboutique.com',plan:'Instagram Growth',mrr:32,ch:['ig'],status:'paid'},
+ {id:8,biz:'GulfTech Repairs',email:'ops@gulftech.kw',plan:'WhatsApp Starter',mrr:20,ch:['wa'],status:'suspended'}
+];
+let pays=[
+ {ref:'PAY-8841',biz:'Shgardi Auto',meth:'KNET',amt:'349.00',date:'21 Jul 2026',st:'paid'},
+ {ref:'PAY-8836',biz:'Al Noor Perfumes',meth:'Credit Card',amt:'145.00',date:'20 Jul 2026',st:'paid'},
+ {ref:'PAY-8830',biz:'Dar Al Teeb',meth:'Bank Transfer',amt:'76.00',date:'18 Jul 2026',st:'paid'},
+ {ref:'PAY-8822',biz:'GulfTech Repairs',meth:'KNET',amt:'20.00',date:'15 Jul 2026',st:'failed'},
+ {ref:'PAY-8817',biz:'Zahra Boutique',meth:'Link',amt:'32.00',date:'14 Jul 2026',st:'pending'}
+];
+let invs=[
+ {no:'INV-2026-0112',biz:'Shgardi Auto',desc:'Complete Pro — July',amt:'349.00',due:'1 Jul 2026',st:'paid'},
+ {no:'INV-2026-0107',biz:'Al Noor Perfumes',desc:'Complete Growth — July',amt:'145.00',due:'1 Jul 2026',st:'paid'},
+ {no:'INV-2026-0104',biz:'Kuwait Dental Co.',desc:'Complete Growth — July',amt:'145.00',due:'1 Jul 2026',st:'unpaid'},
+ {no:'INV-2026-0101',biz:'GulfTech Repairs',desc:'WhatsApp Starter — July',amt:'20.00',due:'1 Jul 2026',st:'overdue'},
+ {no:'INV-2026-0099',biz:'Marina Cafe',desc:'Setup fee',amt:'48.00',due:'25 Jun 2026',st:'overdue'}
+];
+let plans=[
+ {name:'WhatsApp Starter',cat:'WhatsApp',quota:'2,500 msgs',price:'20.00',subs:6},
+ {name:'WhatsApp Growth',cat:'WhatsApp',quota:'5,000 msgs',price:'25.00',subs:8},
+ {name:'WhatsApp Pro',cat:'WhatsApp',quota:'10,000 msgs',price:'34.90',subs:3},
+ {name:'Instagram Starter',cat:'Instagram',quota:'2,500 contacts',price:'20.00',subs:2},
+ {name:'Instagram Growth',cat:'Instagram',quota:'5,000 contacts',price:'32.00',subs:4},
+ {name:'Instagram Business',cat:'Instagram',quota:'10,000 contacts',price:'55.00',subs:1},
+ {name:'Voice Starter',cat:'Voice',quota:'150 min',price:'39.00',subs:2},
+ {name:'Voice Standard',cat:'Voice',quota:'900 min',price:'119.00',subs:2},
+ {name:'Voice Premium (ElevenLabs)',cat:'Voice',quota:'900 min',price:'329.00',subs:1},
+ {name:'Social Starter',cat:'Bundle',quota:'WA+IG Starter',price:'34.00',subs:1},
+ {name:'Social Growth',cat:'Bundle',quota:'WA+IG Growth',price:'48.00',subs:2},
+ {name:'Social Pro',cat:'Bundle',quota:'WA Pro + IG Biz',price:'76.00',subs:2},
+ {name:'Complete Starter',cat:'Bundle',quota:'All 3 Starter',price:'65.00',subs:1},
+ {name:'Complete Growth',cat:'Bundle',quota:'All 3 Growth',price:'145.00',subs:4},
+ {name:'Complete Pro',cat:'Bundle',quota:'All 3 Pro',price:'349.00',subs:1}
+];
+
+/* ---------- renderers ---------- */
+const stBadge=s=>({paid:'b-ok',free:'b-free',suspended:'b-bad',pending:'b-warn',failed:'b-bad',unpaid:'b-warn',overdue:'b-bad'}[s]||'b-info');
+const chIco={wa:['#25D366','message-circle'],ig:['#DD2A7B','instagram'],vc:['#5B8DEF','phone-call']};
+const planLbl={whatsapp:'WhatsApp Chatbot',instagram:'Instagram Chatbot',voice:'AI Voice Agent',bundle_social:'Social Bundle',bundle_complete:'Complete Bundle'};
+
+function renderReqs(){
+ const el=document.getElementById('reqList');
+ document.getElementById('reqCnt').textContent=requests.length;
+ document.getElementById('reqCnt').style.display=requests.length?'':'none';
+ el.innerHTML=requests.length?requests.map(r=>`
+  <div class="req-card">
+   <div class="rh"><div><b>${r.business_name}</b><div class="meta">${r.contact_name} · ${r.email} · ${r.whatsapp}</div></div>
+   <span class="badge b-info">${planLbl[r.interested_plan]||r.interested_plan}</span></div>
+   <p>"${r.message}"</p>
+   <div class="rh"><span class="meta">${r.created}</span>
+    <div class="acts">
+     <a class="btn btn-o" style="padding:7px 13px" href="https://wa.me/${r.whatsapp.replace(/\D/g,'')}" target="_blank"><i data-lucide="message-circle" style="width:14px"></i>${T('wa_reply')}</a>
+     <button class="btn btn-r" style="padding:7px 13px" onclick="rejectReq(${r.id})">${T('reject')}</button>
+     <button class="btn btn-g" style="padding:7px 13px" onclick="approveReq(${r.id})"><i data-lucide="user-check" style="width:14px"></i>${T('approve')}</button>
+    </div></div>
+  </div>`).join('') : `<div style="text-align:center;color:var(--mut);padding:40px">${lang==='ar'?'لا توجد طلبات جديدة 🎉':'No new requests 🎉'}</div>`;
+ lucide.createIcons();
+}
+function approveReq(id){
+ const r=requests.find(x=>x.id===id);
+ openAdd();
+ const f=document.querySelector('#bizModal form');
+ f.business_name.value=r.business_name;f.owner_name.value=r.contact_name;f.email.value=r.email;f.whatsapp.value=r.whatsapp;
+ fetch(`${API}/admin/requests/${id}/approve`,{method:'POST',headers:{Authorization:'Bearer '+token}}).catch(()=>{});
+ requests=requests.filter(x=>x.id!==id);renderReqs();
+}
+function rejectReq(id){
+ fetch(`${API}/admin/requests/${id}/reject`,{method:'POST',headers:{Authorization:'Bearer '+token}}).catch(()=>{});
+ requests=requests.filter(x=>x.id!==id);renderReqs();toast();
+}
+function renderUsers(){
+ const q=(document.getElementById('userSearch').value||'').toLowerCase();
+ const f=document.getElementById('userFilter').value;
+ document.getElementById('userRows').innerHTML=users
+  .filter(u=>(f==='all'||u.status===f)&&u.biz.toLowerCase().includes(q))
+  .map(u=>`<tr>
+   <td><div class="uc"><img class="avatar-s" src="https://ui-avatars.com/api/?name=${encodeURIComponent(u.biz)}&background=EAF9F3&color=0A9873&bold=true"><div><b>${u.biz}</b><span>${u.email}</span></div></div></td>
+   <td>${u.plan}</td>
+   <td>${u.ch.map(c=>`<i data-lucide="${chIco[c][1]}" style="width:15px;color:${chIco[c][0]};margin-inline-end:5px"></i>`).join('')}</td>
+   <td><b>${u.mrr} KWD</b></td>
+   <td><span class="badge ${stBadge(u.status)}">${T(u.status==='suspended'?'susp':u.status).toUpperCase?T(u.status==='suspended'?'susp':u.status).toString().toUpperCase():u.status}</span></td>
+   <td style="white-space:nowrap">
+    <button class="btn btn-o" style="padding:6px 11px" title="${T('login_as')}"><i data-lucide="log-in" style="width:14px"></i></button>
+    <button class="btn btn-o" style="padding:6px 11px" title="${T('edit')}"><i data-lucide="pencil" style="width:14px"></i></button>
+    <button class="btn ${u.status==='suspended'?'btn-g':'btn-r'}" style="padding:6px 11px" onclick="toggleSuspend(${u.id})" title="${u.status==='suspended'?T('activate'):T('suspend')}"><i data-lucide="${u.status==='suspended'?'play':'pause'}" style="width:14px"></i></button>
+   </td></tr>`).join('');
+ lucide.createIcons();
+}
+function toggleSuspend(id){
+ const u=users.find(x=>x.id===id);
+ u.status=u.status==='suspended'?'paid':'suspended';
+ fetch(`${API}/admin/businesses/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({status:u.status})}).catch(()=>{});
+ renderUsers();toast();
+}
+function renderPays(){
+ document.getElementById('payRows').innerHTML=pays.map(p=>`<tr>
+  <td><b>${p.ref}</b></td><td>${p.biz}</td><td>${p.meth}</td><td><b>${p.amt} KWD</b></td><td>${p.date}</td>
+  <td><span class="badge ${stBadge(p.st)}">${p.st.toUpperCase()}</span></td></tr>`).join('');
+}
+function renderInvs(){
+ document.getElementById('invRows').innerHTML=invs.map(i=>`<tr>
+  <td><b>${i.no}</b></td><td>${i.biz}</td><td>${i.desc}</td><td><b>${i.amt} KWD</b></td><td>${i.due}</td>
+  <td><span class="badge ${stBadge(i.st)}">${i.st.toUpperCase()}</span></td>
+  <td style="white-space:nowrap">
+   <button class="btn btn-o" style="padding:6px 11px" title="PDF"><i data-lucide="download" style="width:14px"></i></button>
+   ${i.st!=='paid'?`<button class="btn btn-o" style="padding:6px 11px" onclick="toast()" title="${T('remind')}"><i data-lucide="bell" style="width:14px"></i></button>`:''}
+  </td></tr>`).join('');
+ lucide.createIcons();
+}
+function renderPlans(){
+ document.getElementById('planRows').innerHTML=plans.map((p,i)=>`<tr>
+  <td><b>${p.name}</b></td><td>${p.cat}</td><td>${p.quota}</td><td><b>${p.price} KWD</b></td><td>${p.subs}</td>
+  <td><button class="btn btn-o" style="padding:6px 12px" onclick="toast()"><i data-lucide="pencil" style="width:13px"></i>${T('edit')}</button></td></tr>`).join('');
+ lucide.createIcons();
+}
+
+/* ---------- charts ---------- */
+Chart.defaults.font.family=getComputedStyle(document.body).fontFamily;
+Chart.defaults.color='#5C6B7C';
+const teal='#0FBE8F',gold='#F5A623',navy='#071A2B',ig='#DD2A7B',vc='#5B8DEF';
+new Chart(chRev,{type:'bar',data:{labels:['Feb','Mar','Apr','May','Jun','Jul'],datasets:[{data:[1240,1512,1798,2105,2410,2847],backgroundColor:teal,borderRadius:7}]},options:{plugins:{legend:{display:false}},maintainAspectRatio:false,scales:{y:{grid:{color:'#EDF1F5'}},x:{grid:{display:false}}}}});
+new Chart(chGrowth,{type:'line',data:{labels:['Feb','Mar','Apr','May','Jun','Jul'],datasets:[
+ {label:'Paid',data:[14,18,21,25,27,31],borderColor:teal,backgroundColor:'rgba(15,190,143,.12)',fill:true,tension:.4,borderWidth:2.5},
+ {label:'Free',data:[9,10,12,11,13,12],borderColor:gold,borderDash:[6,4],tension:.4,borderWidth:2.5}
+]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{grid:{color:'#EDF1F5'}},x:{grid:{display:false}}}}});
+new Chart(chPlan,{type:'doughnut',data:{labels:['Complete bundles','Social bundles','WhatsApp','Instagram','Voice'],datasets:[{data:[1088,242,264,196,526],backgroundColor:[navy,teal,'#25D366',ig,vc],borderWidth:0}]},options:{maintainAspectRatio:false,cutout:'66%',plugins:{legend:{position:'bottom'}}}});
+new Chart(chMsg,{type:'line',data:{labels:Array.from({length:14},(_,i)=>`J${i+8}`),datasets:[{data:[2100,2350,2280,2600,2540,2890,3010,2760,3150,3290,3080,3420,3510,3640],borderColor:vc,backgroundColor:'rgba(91,141,239,.12)',fill:true,tension:.4,borderWidth:2.5}]},options:{plugins:{legend:{display:false}},maintainAspectRatio:false,scales:{y:{grid:{color:'#EDF1F5'}},x:{grid:{display:false}}}}});
+new Chart(chArpu,{type:'line',data:{labels:['Feb','Mar','Apr','May','Jun','Jul'],datasets:[
+ {label:'ARPU (KWD)',data:[88,84,86,84,89,92],borderColor:teal,tension:.4,borderWidth:2.5,yAxisID:'y'},
+ {label:'Churn %',data:[4.1,3.8,2.9,3.2,2.4,1.9],borderColor:'#DC2626',borderDash:[6,4],tension:.4,borderWidth:2.5,yAxisID:'y1'}
+]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{grid:{color:'#EDF1F5'}},y1:{position:'right',grid:{display:false}},x:{grid:{display:false}}}}});
+new Chart(chUse,{type:'bar',data:{labels:['WhatsApp','Instagram','Voice','Website'],datasets:[{data:[61200,28400,9800,12100],backgroundColor:['#25D366',ig,vc,'#8B5CF6'],borderRadius:7}]},options:{plugins:{legend:{display:false}},maintainAspectRatio:false,scales:{y:{grid:{color:'#EDF1F5'}},x:{grid:{display:false}}}}});
+
+/* ---------- add business ---------- */
+function openAdd(){document.getElementById('bizModal').classList.add('open');lucide.createIcons()}
+function closeAdd(){document.getElementById('bizModal').classList.remove('open')}
+async function createBiz(e){
+ e.preventDefault();
+ const data=Object.fromEntries(new FormData(e.target));
+ try{
+  await fetch(API+'/admin/businesses',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(data)});
+ }catch(_){}
+ users.unshift({id:Date.now(),biz:data.business_name,email:data.email,plan:e.target.plan_code.selectedOptions[0].text.split(' — ')[0],mrr:parseFloat(e.target.plan_code.selectedOptions[0].text.split('— ')[1])||0,ch:['wa'],status:data.plan_code==='free'?'free':'paid'});
+ closeAdd();renderUsers();toast();e.target.reset();
+ return false;
+}
+function toast(){const t=document.getElementById('toast');t.textContent=lang==='ar'?'تم ✓':'Done ✓';t.style.opacity=1;t.style.transform='translateX(-50%)';setTimeout(()=>{t.style.opacity=0;t.style.transform='translateX(-50%) translateY(80px)'},1800)}
+function logout(){localStorage.removeItem('sts_token');localStorage.removeItem('sts_user');location.href='../index.html'}
+
+/* ---------- boot: try live API, fall back to demo ---------- */
+(async()=>{
+ try{
+  const h={Authorization:'Bearer '+token};
+  const [rq,ru,rp,ri]=await Promise.all([
+   fetch(API+'/admin/requests',{headers:h}),fetch(API+'/admin/businesses',{headers:h}),
+   fetch(API+'/admin/payments',{headers:h}),fetch(API+'/admin/invoices',{headers:h})]);
+  if(rq.ok){const j=await rq.json();if(Array.isArray(j)&&j.length)requests=j}
+  if(ru.ok){const j=await ru.json();if(Array.isArray(j)&&j.length)users=j}
+  if(rp.ok){const j=await rp.json();if(Array.isArray(j)&&j.length)pays=j}
+  if(ri.ok){const j=await ri.json();if(Array.isArray(j)&&j.length)invs=j}
+ }catch(_){/* demo mode */}
+ if(lang==='ar')applyLang();
+ renderReqs();renderUsers();renderPays();renderInvs();renderPlans();lucide.createIcons();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Icon } from '../components/Icon'
+import { T, useLang } from '../i18n/LangContext'
+import { API, clearSession, getUser } from '../lib/api'
+import { ToastProvider } from './dashboard/ui'
+import { Inbox } from './dashboard/Inbox'
+import {
+  Overview,
+  WhatsAppView,
+  InstagramView,
+  VoiceView,
+  WidgetView,
+  KnowledgeView,
+  AnalyticsView,
+  BillingView,
+  SettingsView,
+} from './dashboard/Views'
+
+/** Sidebar structure — matches the original nav order and sections. */
+const NAV = [
+  { v: 'overview', icon: 'layout-dashboard', label: 'n_over' },
+  { v: 'inbox', icon: 'inbox', label: 'n_inbox' },
+  { section: 'n_agents' },
+  { v: 'whatsapp', icon: 'message-circle', label: 'n_wa' },
+  { v: 'instagram', icon: 'instagram', label: 'n_ig' },
+  { v: 'voice', icon: 'phone-call', label: 'n_vc' },
+  { v: 'widget', icon: 'globe', label: 'n_wd' },
+  { v: 'knowledge', icon: 'book-open', label: 'n_kb' },
+  { section: 'n_biz' },
+  { v: 'analytics', icon: 'bar-chart-3', label: 'n_an' },
+  { v: 'billing', icon: 'credit-card', label: 'n_bill' },
+  { v: 'settings', icon: 'settings', label: 'n_set' },
+]
+
+const TITLES = {
+  overview: 'n_over', inbox: 'n_inbox', whatsapp: 'n_wa', instagram: 'n_ig',
+  voice: 'n_vc', widget: 'n_wd', knowledge: 'n_kb', analytics: 'n_an',
+  billing: 'n_bill', settings: 'n_set',
+}
+
+function ViewRouter({ view, summary }) {
+  switch (view) {
+    case 'inbox': return <Inbox />
+    case 'whatsapp': return <WhatsAppView />
+    case 'instagram': return <InstagramView />
+    case 'voice': return <VoiceView />
+    case 'widget': return <WidgetView />
+    case 'knowledge': return <KnowledgeView />
+    case 'analytics': return <AnalyticsView />
+    case 'billing': return <BillingView />
+    case 'settings': return <SettingsView />
+    default: return <Overview summary={summary} />
+  }
+}
+
+export default function Dashboard() {
+  const { t, toggle, isAr } = useLang()
+  const navigate = useNavigate()
+  const [view, setView] = useState('overview')
+  const [sideOpen, setSideOpen] = useState(false)
+  const [summary, setSummary] = useState({ conv: 128, ai: 86, leads: 23 })
+
+  const user = getUser()
+  const bizName = user.business_name ? `${user.business_name} · ${user.plan || ''}` : 'Al Noor Perfumes · Complete Growth'
+
+  // Boot: try the live summary API, silently keep demo numbers if offline —
+  // exactly the original try-API-then-demo behaviour.
+  useEffect(() => {
+    const token = localStorage.getItem('sts_token')
+    if (!token) return
+    fetch(API + '/me/summary', { headers: { Authorization: 'Bearer ' + token } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (!s) return
+        setSummary((prev) => ({
+          conv: s.conversations_today ?? prev.conv,
+          ai: s.ai_resolved ?? prev.ai,
+          leads: s.leads ?? prev.leads,
+        }))
+      })
+      .catch(() => {})
+  }, [])
+
+  function logout() {
+    clearSession()
+    navigate('/')
+  }
+
+  function go(v) {
+    setView(v)
+    setSideOpen(false)
+  }
+
+  return (
+    <div className="dash">
+      <div className="app">
+        {/* ============ SIDEBAR ============ */}
+        <aside className={sideOpen ? 'open' : ''}>
+          <div className="logo"><span className="logo-mark"><Icon name="messages-square" /></span>STS</div>
+          {NAV.map((item, i) =>
+            item.section ? (
+              <div className="nav-sec" key={'s' + i}>{t(item.section)}</div>
+            ) : (
+              <button key={item.v} className={`nav-item ${view === item.v ? 'on' : ''}`} onClick={() => go(item.v)}>
+                <Icon name={item.icon} />
+                <span>{t(item.label)}</span>
+              </button>
+            ),
+          )}
+          <div className="side-foot">
+            <button className="nav-item" onClick={toggle}><Icon name="languages" /><span>{isAr ? 'English' : 'عربي'}</span></button>
+            <button className="nav-item" onClick={logout}><Icon name="log-out" /><span><T k="n_out" /></span></button>
+          </div>
+        </aside>
+
+        {/* ============ MAIN ============ */}
+        <main>
+          <div className="topbar">
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button className="burger" onClick={() => setSideOpen((o) => !o)}><Icon name="menu" /></button>
+              <div>
+                <h1>{t(TITLES[view])}</h1>
+                <div className="sub">{bizName}</div>
+              </div>
+            </div>
+            <div className="top-actions">
+              <span className="pill"><span className="dot" /><T k="bot_live" /></span>
+              <img
+                src="https://ui-avatars.com/api/?name=Al+Noor&background=0FBE8F&color=03271B&bold=true"
+                style={{ width: 38, height: 38, borderRadius: '50%' }}
+                alt=""
+              />
+            </div>
+          </div>
+
+          <ViewRouter view={view} summary={summary} />
+        </main>
+      </div>
+    </div>
+  )
+}
+
+/* Wrap the dashboard in the toast provider so any view can call useToast(). */
+export function DashboardPage() {
+  return (
+    <ToastProvider>
+      <Dashboard />
+    </ToastProvider>
+  )
+}

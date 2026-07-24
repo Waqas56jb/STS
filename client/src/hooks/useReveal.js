@@ -1,42 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
 
 /**
- * Reveal an element once it scrolls into view.
- *
- * Returns a ref to attach and the current visibility. Unobserves after
- * the first intersection so the animation only ever plays once, and
- * degrades to "always visible" where IntersectionObserver is missing.
- *
- * @param {object} options
- * @param {number} options.threshold  Fraction visible before firing
- * @param {string} options.rootMargin Trigger offset
+ * Scroll-reveal, matching the original IntersectionObserver at
+ * threshold 0.12. Adds the `in` state once the element enters view and
+ * then stops observing, so the fade-up plays exactly once.
  */
-export function useReveal({ threshold = 0.15, rootMargin = '0px 0px -60px 0px' } = {}) {
+export function useReveal(threshold = 0.12) {
   const ref = useRef(null)
-  const [isVisible, setIsVisible] = useState(false)
+  const [shown, setShown] = useState(false)
 
   useEffect(() => {
     const node = ref.current
-    if (!node) return
-
+    if (!node || shown) return
     if (typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true)
+      setShown(true)
       return
     }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-          observer.unobserve(entry.target)
-        }
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            setShown(true)
+            io.unobserve(e.target)
+          }
+        })
       },
-      { threshold, rootMargin },
+      { threshold },
     )
+    io.observe(node)
+    return () => io.disconnect()
+  }, [shown, threshold])
 
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [threshold, rootMargin])
-
-  return { ref, isVisible }
+  return [ref, shown]
 }
