@@ -127,12 +127,17 @@ textarea {
 .admin .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-family: var(--disp);
-  font-weight: 800;
-  font-size: 20px;
-  padding: 0 8px;
+  padding: 0 6px;
   margin-bottom: 6px;
+}
+.admin .logo-img {
+  height: 44px;
+  width: auto;
+  display: block;
+  background: #fff;
+  border-radius: 11px;
+  padding: 5px 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
 }
 .admin .logo-mark {
   width: 36px;
@@ -678,31 +683,14 @@ html[dir='rtl'] .admin th {
   justify-content: space-between;
   gap: 14px;
 }
-.admin-login .al-logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-}
-.admin-login .al-logo .badge {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+.admin-login .al-logoimg {
+  height: 76px;
+  width: auto;
+  display: block;
   background: #fff;
-  padding: 5px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  box-shadow: 0 8px 26px -8px rgba(0, 0, 0, 0.5);
-}
-.admin-login .al-logo .badge img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.admin-login .al-logo b {
-  font-family: var(--disp);
-  font-size: 22px;
-  font-weight: 800;
+  border-radius: 16px;
+  padding: 8px 11px;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.5);
 }
 .admin-login .al-tag {
   font-family: var(--disp);
@@ -885,25 +873,14 @@ html[dir='rtl'] .admin-login .al-tag {
     display: none;
   }
   .admin-login .al-mobilelogo {
-    display: grid;
-    place-items: center;
-    margin-bottom: 18px;
-  }
-  .admin-login .al-mobilelogo .badge {
-    width: 60px;
-    height: 60px;
-    border-radius: 15px;
+    display: block;
+    height: 76px;
+    width: auto;
+    margin: 0 auto 18px;
     background: #fff;
-    padding: 6px;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
+    border-radius: 16px;
+    padding: 8px 11px;
     box-shadow: 0 10px 30px -10px rgba(7, 26, 43, 0.35);
-  }
-  .admin-login .al-mobilelogo .badge img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
   }
   .admin-login .al-card {
     text-align: center;

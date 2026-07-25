@@ -9,7 +9,7 @@ import {
   Overview, Requests, Users, Payments, Invoices, Plans, Analytics, Settings,
 } from './admin/Views'
 
-const LOGO = import.meta.env.BASE_URL + 'image.png'
+const LOGO = import.meta.env.BASE_URL + 'logo.png'
 
 /** Sidebar structure — matches the admin.html order + request-count badge. */
 const NAV = [
@@ -167,7 +167,7 @@ function AdminInner({ onLogout }) {
 
         {/* ============ SIDEBAR ============ */}
         <aside className={sideOpen ? 'open' : ''}>
-          <div className="logo"><span className="logo-mark"><img src={LOGO} alt="STS" /></span>STS</div>
+          <div className="logo"><img className="logo-img" src={LOGO} alt="STS" /></div>
           <div className="admin-tag">{t('adm_tag')}</div>
           {NAV.map((item) => (
             <button key={item.v} className={`nav-item ${view === item.v ? 'on' : ''}`} onClick={() => go(item.v)}>

@@ -9,8 +9,8 @@ import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
 import { apiPost, saveSession, WHATSAPP } from '../lib/api'
 import { priceData, priceTabs } from '../data/pricing'
 
-// brand logo from public/ (base-aware so it works at any deploy path)
-const LOGO = import.meta.env.BASE_URL + 'image.png'
+// transparent brand logo from public/ (base-aware so it works at any deploy path)
+const LOGO = import.meta.env.BASE_URL + 'logo.png'
 
 const services = [
   { ic: 'g1', icon: 'message-circle', h: 's1h', p: 's1p' },
@@ -60,10 +60,7 @@ function Nav({ onLogin }) {
     <nav className={scrolled ? 'scrolled' : ''}>
       <div className="wrap nav-in">
         <a className="logo" href="#top" onClick={close}>
-          <span className="logo-mark">
-            <img src={LOGO} alt="STS Tech Solutions" />
-          </span>
-          STS
+          <img className="logo-img" src={LOGO} alt="STS Tech Solutions" />
         </a>
         <div className="nav-links">
           {NAV_LINKS.map((l) => (
@@ -455,7 +452,7 @@ export default function Landing() {
           <div className="f-grid">
             <div>
               <a className="logo" href="#top" style={{ marginBottom: 16 }}>
-                <span className="logo-mark"><img src={LOGO} alt="STS Tech Solutions" /></span>STS
+                <img className="logo-img" src={LOGO} alt="STS Tech Solutions" />
               </a>
               <p style={{ fontSize: 14, maxWidth: 300, marginTop: 14 }}><T k="ft_p" /></p>
               <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>

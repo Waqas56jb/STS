@@ -3,7 +3,7 @@ import { Icon } from '../components/Icon'
 import { useAdminT } from '../i18n/admin'
 import { apiPost, saveSession } from '../lib/api'
 
-const LOGO = import.meta.env.BASE_URL + 'image.png'
+const LOGO = import.meta.env.BASE_URL + 'logo.png'
 
 /**
  * Elegant, on-theme admin login page. Split layout: a navy/green brand
@@ -53,10 +53,7 @@ export function AdminLogin({ onSuccess }) {
       <aside className="al-brand">
         <div className="al-glow" aria-hidden="true" />
         <div className="al-brand-top">
-          <span className="al-logo">
-            <span className="badge"><img src={LOGO} alt="STS Tech Solutions" /></span>
-            <b>STS</b>
-          </span>
+          <img className="al-logoimg" src={LOGO} alt="STS Tech Solutions" />
           <span className="al-tag">{t('lg_tag')}</span>
         </div>
 
@@ -79,9 +76,7 @@ export function AdminLogin({ onSuccess }) {
         </button>
 
         <form className="al-card" onSubmit={submit}>
-          <span className="al-mobilelogo">
-            <span className="badge"><img src={LOGO} alt="STS" /></span>
-          </span>
+          <img className="al-mobilelogo" src={LOGO} alt="STS" />
 
           <h2>{t('lg_welcome')}</h2>
           <p className="sub">{t('lg_sub')}</p>

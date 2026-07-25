@@ -232,13 +232,18 @@ html[dir='rtl'] .site .eyebrow {
   height: 72px;
 }
 .site .logo {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-family: var(--disp);
-  font-weight: 800;
-  font-size: 22px;
   color: #fff;
+}
+.site .logo-img {
+  height: 50px;
+  width: auto;
+  display: block;
+  background: #fff;
+  border-radius: 13px;
+  padding: 6px 9px;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
 }
 .site .logo-mark {
   width: 40px;
@@ -1290,9 +1295,23 @@ html[dir='rtl'] .site .reply .bubble {
   .site .pgrid {
     grid-template-columns: 1fr 1fr;
   }
+  /* hero visual reflows: the floating orbs are decorative and overlap the
+     card on narrow screens, so drop them and let the inbox card flow */
   .site .stage {
-    height: 520px;
-    margin-top: 20px;
+    height: auto;
+    margin-top: 18px;
+    display: flex;
+    justify-content: center;
+  }
+  .site .orb {
+    display: none;
+  }
+  .site .dash-card {
+    position: static;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+    inset: auto;
   }
   .site .nav-links {
     display: none;
@@ -1332,9 +1351,6 @@ html[dir='rtl'] .site .reply .bubble {
   .site .hero-cta .btn {
     flex: 1;
     justify-content: center;
-  }
-  .site .stage {
-    height: 470px;
   }
   .site .sec-head {
     margin-bottom: 36px;
@@ -1409,12 +1425,17 @@ html[dir='rtl'] .site .reply .bubble {
 .dash .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-family: var(--disp);
-  font-weight: 800;
-  font-size: 20px;
-  padding: 0 8px;
+  padding: 0 6px;
   margin-bottom: 28px;
+}
+.dash .logo-img {
+  height: 44px;
+  width: auto;
+  display: block;
+  background: #fff;
+  border-radius: 11px;
+  padding: 5px 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
 }
 .dash .logo-mark {
   width: 36px;
