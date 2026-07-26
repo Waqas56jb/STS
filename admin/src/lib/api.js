@@ -26,19 +26,36 @@ function authHeaders(extra = {}) {
   return { 'Content-Type': 'application/json', ...(t ? { Authorization: 'Bearer ' + t } : {}), ...extra }
 }
 
-export async function apiPost(path, body, { auth = false } = {}) {
-  const res = await fetch(API + path, {
-    method: 'POST',
-    headers: auth ? authHeaders() : { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const err = new Error(data.error || 'Request failed')
-    err.status = res.status // lets callers tell 401 (bad creds) from 5xx (server down)
-    throw err
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * POST helper. `retries` transparently retries transient failures (network
+ * error or 5xx) — this masks the serverless backend's cold start, where the
+ * first request after idle can 500 while the DB connection warms up. Auth
+ * failures (401/403) are never retried.
+ */
+export async function apiPost(path, body, { auth = false, retries = 0 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(API + path, {
+        method: 'POST',
+        headers: auth ? authHeaders() : { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const err = new Error(data.error || 'Request failed')
+        err.status = res.status // lets callers tell 401 (bad creds) from 5xx (server down)
+        if (res.status >= 500 && attempt < retries) { await sleep(1200); continue }
+        throw err
+      }
+      return data
+    } catch (e) {
+      // network error (fetch threw, no status) → retry through the cold start
+      if (e.status === undefined && attempt < retries) { await sleep(1200); continue }
+      throw e
+    }
   }
-  return data
 }
 
 export async function apiGet(path, { auth = true } = {}) {

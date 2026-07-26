@@ -27,7 +27,7 @@ export function AdminLogin({ onSuccess }) {
     setErr('')
     setBusy(true)
     try {
-      const { token, user } = await apiPost('/auth/login', { email, password })
+      const { token, user } = await apiPost('/auth/login', { email, password }, { retries: 2 })
       if (user.role !== 'admin') {
         setErr(t('lg_notadmin'))
         setBusy(false)

@@ -282,7 +282,7 @@ function LoginModal({ open, onClose }) {
     const email = e.target.lgEmail.value
     const password = e.target.lgPass.value
     try {
-      const { token, user } = await apiPost('/auth/login', { email, password })
+      const { token, user } = await apiPost('/auth/login', { email, password }, { retries: 2 })
       saveSession({ token, user })
       // route by role — admin panel is a separate app served at /admin/,
       // the client dashboard is a route in this app (matches the original
