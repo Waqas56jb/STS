@@ -1,32 +1,43 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { useAdminT } from '../../i18n/admin'
-import { apiGet, apiPut } from '../../lib/api'
+import { apiGet, apiPut, apiPostAuth, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
 
 /**
- * Per-business channel connection credentials.
+ * Per-business channel connections + chatbot training, in one modal.
  *
- * The field layout is driven by GET /api/admin/connection-spec (so adding a
- * field in the backend appears here automatically). Secret fields render as
- * password inputs with the masked current value as placeholder — leaving one
- * blank keeps the stored secret (the server merges), so a connection never
- * accidentally breaks. Saving encrypts everything server-side.
+ * Two modes (top toggle):
+ *  - Connections: spec-driven credential form (GET /api/admin/connection-spec),
+ *    secrets stored encrypted. Blank secret fields keep the stored value.
+ *  - Training: manage the business's knowledge base
+ *    (GET/POST /api/admin/businesses/:id/knowledge, DELETE /api/admin/knowledge/:id)
+ *    so an admin can train the bot for any business from here.
  */
+const KB_ICON = { file: 'file-text', url: 'globe', qa: 'message-square' }
+
 export function ConnectionModal({ business, onClose }) {
-  const { t, isAr } = useAdminT()
+  const { isAr } = useAdminT()
   const toast = useToast()
+  const [mode, setMode] = useState('conn') // 'conn' | 'train'
   const [spec, setSpec] = useState(null)
   const [conns, setConns] = useState([])
   const [channel, setChannel] = useState('whatsapp')
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
 
+  // training state
+  const [kb, setKb] = useState([])
+  const [url, setUrl] = useState('')
+  const [q, setQ] = useState('')
+  const [a, setA] = useState('')
+
   const open = Boolean(business)
 
   // load spec + current connections when a business is opened
   useEffect(() => {
     if (!business) return
+    setMode('conn')
     setChannel('whatsapp')
     Promise.all([
       apiGet('/admin/connection-spec'),
@@ -34,7 +45,13 @@ export function ConnectionModal({ business, onClose }) {
     ])
       .then(([sp, cs]) => { setSpec(sp); setConns(cs) })
       .catch(() => {})
+    loadKb()
   }, [business])
+
+  function loadKb() {
+    if (!business) return
+    apiGet(`/admin/businesses/${business.id}/knowledge`).then(setKb).catch(() => {})
+  }
 
   const current = useMemo(() => conns.find((c) => c.channel === channel), [conns, channel])
 
@@ -56,7 +73,6 @@ export function ConnectionModal({ business, onClose }) {
     setSaving(true)
     try {
       const res = await apiPut(`/admin/businesses/${business.id}/connections/${channel}`, { fields: form })
-      // refresh masked view
       const cs = await apiGet(`/admin/businesses/${business.id}/connections`)
       setConns(cs)
       toast(res.connected ? (isAr ? 'تم الحفظ — متصل ✓' : 'Saved — connected ✓') : (isAr ? 'تم الحفظ ✓' : 'Saved ✓'))
@@ -67,71 +83,150 @@ export function ConnectionModal({ business, onClose }) {
     }
   }
 
+  async function importUrl() {
+    if (!url.trim()) return
+    await apiPostAuth(`/admin/businesses/${business.id}/knowledge`, {
+      type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL',
+    }).catch(() => {})
+    setUrl(''); toast(isAr ? 'تمت الإضافة ✓' : 'Added ✓'); loadKb()
+  }
+  async function addQa() {
+    if (!q.trim()) return
+    await apiPostAuth(`/admin/businesses/${business.id}/knowledge`, {
+      type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A',
+    }).catch(() => {})
+    setQ(''); setA(''); toast(isAr ? 'تم التدريب ✓' : 'Trained ✓'); loadKb()
+  }
+  async function removeKb(id) {
+    await apiDelete(`/admin/knowledge/${id}`).catch(() => {})
+    loadKb()
+  }
+
   return (
     <div className="modal open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card" style={{ maxWidth: 560 }}>
         <button className="modal-x" onClick={onClose}><Icon name="x" /></button>
-        <h3 style={{ marginBottom: 4 }}>{isAr ? 'اتصالات القنوات' : 'Channel connections'}</h3>
-        <p style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 16 }}>
-          {business.biz} — {isAr ? 'أدخل مفاتيح الاتصال (تُحفظ مشفّرة)' : 'enter the connection keys (stored encrypted)'}
+        <h3 style={{ marginBottom: 4 }}>{business.biz}</h3>
+        <p style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 14 }}>
+          {mode === 'conn'
+            ? (isAr ? 'أدخل مفاتيح الاتصال (تُحفظ مشفّرة)' : 'Enter connection keys (stored encrypted)')
+            : (isAr ? 'درّب روبوت المحادثة لهذا النشاط' : 'Train the chatbot for this business')}
         </p>
 
-        {/* channel tabs */}
-        <div className="conn-tabs">
-          {spec && Object.keys(spec).map((ch) => {
-            const c = conns.find((x) => x.channel === ch)
-            return (
-              <button
-                key={ch}
-                className={`conn-tab ${channel === ch ? 'on' : ''}`}
-                onClick={() => setChannel(ch)}
-              >
-                <Icon name={spec[ch].icon} size={15} />
-                {spec[ch].label.split(' — ')[0]}
-                <span className={`conn-dot ${c?.connected ? 'ok' : ''}`} />
-              </button>
-            )
-          })}
+        {/* mode toggle */}
+        <div className="conn-tabs" style={{ marginBottom: 14 }}>
+          <button className={`conn-tab ${mode === 'conn' ? 'on' : ''}`} onClick={() => setMode('conn')}>
+            <Icon name="plug-zap" size={15} />{isAr ? 'الاتصالات' : 'Connections'}
+          </button>
+          <button className={`conn-tab ${mode === 'train' ? 'on' : ''}`} onClick={() => setMode('train')}>
+            <Icon name="brain" size={15} />{isAr ? 'التدريب' : 'Training'}
+            <span className="badge b-info" style={{ marginInlineStart: 6, padding: '1px 7px' }}>{kb.length}</span>
+          </button>
         </div>
 
-        {spec && spec[channel] && (
+        {/* ---------------- CONNECTIONS ---------------- */}
+        {mode === 'conn' && (
           <>
-            <div className="conn-status">
-              <span className={`badge ${current?.connected ? 'b-ok' : 'b-warn'}`}>
-                {current?.connected ? (isAr ? 'متصل' : 'CONNECTED') : (isAr ? 'غير متصل' : 'NOT CONNECTED')}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--mut)' }}>{spec[channel].label}</span>
+            <div className="conn-tabs">
+              {spec && Object.keys(spec).map((ch) => {
+                const c = conns.find((x) => x.channel === ch)
+                return (
+                  <button
+                    key={ch}
+                    className={`conn-tab ${channel === ch ? 'on' : ''}`}
+                    onClick={() => setChannel(ch)}
+                  >
+                    <Icon name={spec[ch].icon} size={15} />
+                    {spec[ch].label.split(' — ')[0]}
+                    <span className={`conn-dot ${c?.connected ? 'ok' : ''}`} />
+                  </button>
+                )
+              })}
             </div>
 
-            {spec[channel].fields.map((field) => (
-              <div className="field" key={field.key}>
-                <label>{field.label}{spec[channel].required.includes(field.key) && ' *'}</label>
-                {field.type === 'select' ? (
-                  <select value={form[field.key] || ''} onChange={(e) => set(field.key, e.target.value)}>
-                    <option value="">—</option>
-                    {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    type={field.secret ? 'password' : 'text'}
-                    value={form[field.key] || ''}
-                    onChange={(e) => set(field.key, e.target.value)}
-                    placeholder={field.secret ? (current?.fields?.[field.key] || (isAr ? 'أدخل القيمة' : 'enter value')) : ''}
-                    autoComplete="off"
-                  />
-                )}
-              </div>
-            ))}
+            {spec && spec[channel] && (
+              <>
+                <div className="conn-status">
+                  <span className={`badge ${current?.connected ? 'b-ok' : 'b-warn'}`}>
+                    {current?.connected ? (isAr ? 'متصل' : 'CONNECTED') : (isAr ? 'غير متصل' : 'NOT CONNECTED')}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--mut)' }}>{spec[channel].label}</span>
+                </div>
 
-            <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }} onClick={save} disabled={saving}>
-              <Icon name="save" size={16} />
-              {saving ? (isAr ? 'جارٍ الحفظ…' : 'Saving…') : (isAr ? 'حفظ الاتصال' : 'Save connection')}
+                {spec[channel].fields.map((field) => (
+                  <div className="field" key={field.key}>
+                    <label>{field.label}{spec[channel].required.includes(field.key) && ' *'}</label>
+                    {field.type === 'select' ? (
+                      <select value={form[field.key] || ''} onChange={(e) => set(field.key, e.target.value)}>
+                        <option value="">—</option>
+                        {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.secret ? 'password' : 'text'}
+                        value={form[field.key] || ''}
+                        onChange={(e) => set(field.key, e.target.value)}
+                        placeholder={field.secret ? (current?.fields?.[field.key] || (isAr ? 'أدخل القيمة' : 'enter value')) : ''}
+                        autoComplete="off"
+                      />
+                    )}
+                  </div>
+                ))}
+
+                <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }} onClick={save} disabled={saving}>
+                  <Icon name="save" size={16} />
+                  {saving ? (isAr ? 'جارٍ الحفظ…' : 'Saving…') : (isAr ? 'حفظ الاتصال' : 'Save connection')}
+                </button>
+                <p style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 10, textAlign: 'center' }}>
+                  {isAr
+                    ? 'اترك حقل السر فارغاً للإبقاء على القيمة المحفوظة.'
+                    : 'Leave a secret field blank to keep the stored value.'}
+                </p>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ---------------- TRAINING ---------------- */}
+        {mode === 'train' && (
+          <>
+            <div className="field">
+              <label>{isAr ? 'استيراد من رابط' : 'Import from URL'}</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input placeholder="https://example.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
+                <button className="btn btn-p" onClick={importUrl}>{isAr ? 'استيراد' : 'Import'}</button>
+              </div>
+            </div>
+            <div className="field">
+              <label>{isAr ? 'سؤال وجواب' : 'Add Q&A'}</label>
+              <input placeholder={isAr ? 'السؤال…' : 'Question…'} value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
+              <textarea rows="2" placeholder={isAr ? 'الجواب…' : 'Answer…'} value={a} onChange={(e) => setA(e.target.value)} />
+            </div>
+            <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center' }} onClick={addQa}>
+              <Icon name="brain" size={16} />{isAr ? 'تدريب الروبوت' : 'Train the bot'}
             </button>
-            <p style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 10, textAlign: 'center' }}>
-              {isAr
-                ? 'اترك حقل السر فارغاً للإبقاء على القيمة المحفوظة.'
-                : 'Leave a secret field blank to keep the stored value.'}
-            </p>
+
+            <div style={{ marginTop: 16 }}>
+              <div className="conn-status" style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{isAr ? 'مصادر المعرفة' : 'Knowledge sources'}</span>
+                <span className="badge b-info" style={{ marginInlineStart: 'auto' }}>{kb.length}</span>
+              </div>
+              {kb.map((s) => (
+                <div className="kb-item" key={s.id}>
+                  <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
+                  <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
+                  <span className={`badge ${s.status === 'trained' ? 'b-ok' : 'b-warn'}`}>{s.status?.toUpperCase()}</span>
+                  <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => removeKb(s.id)}>
+                    <Icon name="x" size={13} />
+                  </button>
+                </div>
+              ))}
+              {kb.length === 0 && (
+                <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}>
+                  {isAr ? 'لا توجد مصادر معرفة بعد.' : 'No knowledge sources yet.'}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

@@ -12,7 +12,7 @@ import {
 const nfmt = (n) => Number(n || 0).toLocaleString('en')
 
 /* ===================== OVERVIEW ===================== */
-export function Overview({ summary = {} }) {
+export function Overview({ summary = {}, analytics }) {
   const { t } = useAdminT()
   return (
     <>
@@ -23,12 +23,12 @@ export function Overview({ summary = {} }) {
         <div className="card stat"><div className="lbl"><span>{t('k_due')}</span><Icon name="alert-triangle" /></div><div className="val">{summary.overdue ?? 0}</div><div className="trend bad">{nfmt(summary.overdue_amount)} KWD {t('pending')}</div></div>
       </div>
       <div className="grid g2" style={{ marginBottom: 18 }}>
-        <div className="card"><h3><Icon name="trending-up" /><span>{t('ch_rev')}</span></h3><div className="chart-box"><RevenueChart /></div></div>
-        <div className="card"><h3><Icon name="users" /><span>{t('ch_growth')}</span></h3><div className="chart-box"><GrowthChart /></div></div>
+        <div className="card"><h3><Icon name="trending-up" /><span>{t('ch_rev')}</span></h3><div className="chart-box"><RevenueChart data={analytics?.revenue_monthly} /></div></div>
+        <div className="card"><h3><Icon name="users" /><span>{t('ch_growth')}</span></h3><div className="chart-box"><GrowthChart data={analytics?.growth_monthly} /></div></div>
       </div>
       <div className="grid g2">
-        <div className="card"><h3><Icon name="pie-chart" /><span>{t('ch_plan')}</span></h3><div className="chart-box"><PlanChart /></div></div>
-        <div className="card"><h3><Icon name="activity" /><span>{t('ch_msg')}</span></h3><div className="chart-box"><MessagesChart /></div></div>
+        <div className="card"><h3><Icon name="pie-chart" /><span>{t('ch_plan')}</span></h3><div className="chart-box"><PlanChart data={analytics?.by_plan} /></div></div>
+        <div className="card"><h3><Icon name="activity" /><span>{t('ch_msg')}</span></h3><div className="chart-box"><MessagesChart data={analytics?.messages_daily} /></div></div>
       </div>
     </>
   )
@@ -70,7 +70,7 @@ export function Requests({ requests, onApprove, onReject }) {
 }
 
 /* ===================== USERS ===================== */
-export function Users({ users, onToggle, onConnections }) {
+export function Users({ users, onToggle, onConnections, onCredentials }) {
   const { t, isAr } = useAdminT()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -114,7 +114,9 @@ export function Users({ users, onToggle, onConnections }) {
                   <button className="btn btn-conn" style={{ padding: '6px 11px' }} onClick={() => onConnections?.(u)} title={isAr ? 'الاتصالات' : 'Connections'}>
                     <Icon name="plug-zap" size={14} />
                   </button>
-                  <button className="btn btn-o" style={{ padding: '6px 11px' }} title={t('edit')}><Icon name="pencil" size={14} /></button>
+                  <button className="btn btn-o" style={{ padding: '6px 11px' }} onClick={() => onCredentials?.(u)} title={isAr ? 'بيانات الدخول' : 'Credentials'}>
+                    <Icon name="key-round" size={14} />
+                  </button>
                   <button className={`btn ${u.status === 'suspended' ? 'btn-g' : 'btn-r'}`} style={{ padding: '6px 11px' }} onClick={() => onToggle(u.id)} title={u.status === 'suspended' ? t('activate') : t('suspend')}>
                     <Icon name={u.status === 'suspended' ? 'play' : 'pause'} size={14} />
                   </button>
@@ -231,15 +233,18 @@ export function Plans() {
 }
 
 /* ===================== ANALYTICS ===================== */
-export function Analytics() {
-  const { t } = useAdminT()
-  const [top, setTop] = useState([])
-  useEffect(() => { apiGet('/admin/analytics').then((a) => setTop(a.top_businesses || [])).catch(() => {}) }, [])
+export function Analytics({ analytics: passed }) {
+  const { t, isAr } = useAdminT()
+  const [self, setSelf] = useState(null)
+  // use the data passed from the shell, else fetch it (deep-linked view)
+  useEffect(() => { if (!passed) apiGet('/admin/analytics').then(setSelf).catch(() => {}) }, [passed])
+  const a = passed || self
+  const top = a?.top_businesses || []
   return (
     <>
       <div className="grid g2" style={{ marginBottom: 18 }}>
-        <div className="card"><h3><Icon name="trending-up" /><span>{t('an_arpu')}</span></h3><div className="chart-box"><ArpuChart /></div></div>
-        <div className="card"><h3><Icon name="bar-chart-3" /><span>{t('an_ch')}</span></h3><div className="chart-box"><UsageChart /></div></div>
+        <div className="card"><h3><Icon name="trending-up" /><span>{t('an_arpu')}</span></h3><div className="chart-box"><ArpuChart data={a?.revenue_monthly} /></div></div>
+        <div className="card"><h3><Icon name="bar-chart-3" /><span>{t('an_ch')}</span></h3><div className="chart-box"><UsageChart data={a?.usage_by_channel} /></div></div>
       </div>
       <div className="card">
         <h3><Icon name="trophy" /><span>{t('an_top')}</span></h3>
@@ -252,6 +257,11 @@ export function Analytics() {
               ))}
             </tbody>
           </table>
+          {top.length === 0 && (
+            <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 24, fontSize: 13 }}>
+              {isAr ? 'لا توجد بيانات بعد' : 'No data yet'}
+            </div>
+          )}
         </div>
       </div>
     </>

@@ -1,11 +1,20 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import { useLang } from '../../i18n/LangContext'
 
-/** Toggle switch matching the original .switch/.slider markup (uncontrolled). */
-export function Switch({ defaultChecked = false }) {
+/**
+ * Toggle switch matching the original .switch/.slider markup.
+ * Uncontrolled by default; pass `checked` + `onChange` for controlled use.
+ */
+export function Switch({ defaultChecked = false, checked, onChange }) {
+  const controlled = checked !== undefined
   return (
     <label className="switch">
-      <input type="checkbox" defaultChecked={defaultChecked} />
+      <input
+        type="checkbox"
+        {...(controlled
+          ? { checked, onChange: (e) => onChange?.(e.target.checked) }
+          : { defaultChecked })}
+      />
       <span className="slider" />
     </label>
   )

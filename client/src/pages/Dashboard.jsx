@@ -68,10 +68,14 @@ export default function Dashboard() {
   const user = getUser()
   const bizName = user.business_name ? `${user.business_name} · ${user.plan || ''}` : ''
 
-  // Boot: load real summary + usage from the API.
+  // Boot: verify the session is real, then load summary + usage.
   useEffect(() => {
     const token = localStorage.getItem('sts_token')
-    if (!token) return
+    if (!token) { navigate('/'); return }
+    // real API only — a missing/invalid/expired token bounces to the landing
+    fetch(API + '/auth/me', { headers: { Authorization: 'Bearer ' + token } })
+      .then((r) => { if (!r.ok) throw new Error('unauthorized') })
+      .catch(() => { clearSession(); navigate('/') })
     fetch(API + '/me/summary', { headers: { Authorization: 'Bearer ' + token } })
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {

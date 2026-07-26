@@ -17,9 +17,15 @@ const origins = (process.env.CORS_ORIGINS || '')
 app.use(
   cors({
     origin(origin, cb) {
-      // allow same-origin / curl (no origin) and any configured localhost origin
-      if (!origin || origins.includes(origin) || /^http:\/\/localhost:\d+$/.test(origin)) return cb(null, true)
-      cb(null, true) // permissive in dev; tighten for production
+      // allow: no-origin (curl/health), configured origins, any localhost port,
+      // and any *.vercel.app deployment (production + preview URLs)
+      if (!origin) return cb(null, true)
+      if (origins.includes(origin)) return cb(null, true)
+      let host = ''
+      try { host = new URL(origin).hostname } catch { /* ignore */ }
+      if (/^(localhost|127\.0\.0\.1)$/.test(host)) return cb(null, true)
+      if (/\.vercel\.app$/.test(host)) return cb(null, true)
+      cb(new Error('Not allowed by CORS'))
     },
     credentials: true,
   }),
@@ -137,6 +143,31 @@ app.get('/api/me/usage', auth, wrap(async (req, res) => {
   const map = {}
   rows.forEach((r) => (map[r.metric] = { used: r.used, quota: r.quota }))
   res.json(map)
+}))
+
+// Analytics charts for the customer dashboard — all derived from real rows,
+// empty arrays/zeros when the business has no data yet.
+app.get('/api/me/analytics', auth, wrap(async (req, res) => {
+  const b = biz(req)
+  const [daily, senders, leads] = await Promise.all([
+    many(
+      `select to_char(date_trunc('day', created_at),'Mon DD') d, count(*)::int n
+         from sts_messages where business_id=$1 and created_at > now() - interval '30 days'
+        group by date_trunc('day', created_at) order by date_trunc('day', created_at)`, [b],
+    ),
+    many(`select sender, count(*)::int n from sts_messages where business_id=$1 group by sender`, [b]),
+    many(
+      `select to_char(date_trunc('week', created_at),'Mon DD') w, count(*)::int n
+         from sts_leads where business_id=$1 and created_at > now() - interval '56 days'
+        group by date_trunc('week', created_at) order by date_trunc('week', created_at)`, [b],
+    ),
+  ])
+  const cnt = (s) => senders.find((x) => x.sender === s)?.n || 0
+  res.json({
+    messages_daily: daily,
+    resolution: { ai: cnt('ai'), human: cnt('human') },
+    leads_weekly: leads,
+  })
 }))
 
 app.get('/api/me/invoices', auth, wrap(async (req, res) => {
@@ -284,16 +315,17 @@ app.post('/api/admin/requests/:id/approve', auth, adminOnly, wrap(async (req, re
       `insert into sts_businesses (name, whatsapp, plan_code, status) values ($1,$2,'free','free') returning id`,
       [reqRow.business_name, reqRow.whatsapp],
     )).rows[0]
-    const tempPw = await hashPassword('Sts@2026!')
+    const plainPw = 'Sts@2026!'
+    const tempPw = await hashPassword(plainPw)
     await c.query(
-      `insert into sts_users (email, name, role, business_id, password_hash)
-       values ($1,$2,'client',$3,$4) on conflict (email) do update set business_id=excluded.business_id`,
-      [reqRow.email.toLowerCase(), reqRow.contact_name || reqRow.business_name, b.id, tempPw],
+      `insert into sts_users (email, name, role, business_id, password_hash, password_enc)
+       values ($1,$2,'client',$3,$4,$5) on conflict (email) do update set business_id=excluded.business_id`,
+      [reqRow.email.toLowerCase(), reqRow.contact_name || reqRow.business_name, b.id, tempPw, encryptJSON({ p: plainPw })],
     )
     await c.query(`update sts_access_requests set status='approved' where id=$1`, [req.params.id])
     return b
   })
-  res.json({ ok: true, business_id: created.id })
+  res.json({ ok: true, business_id: created.id, email: reqRow.email.toLowerCase(), password: 'Sts@2026!' })
 }))
 
 app.post('/api/admin/requests/:id/reject', auth, adminOnly, wrap(async (req, res) => {
@@ -322,21 +354,23 @@ app.post('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
   if (!business_name || !email) return res.status(400).json({ error: 'business_name and email required' })
   const plan = await one(`select * from sts_plans where code=$1`, [plan_code || 'free'])
   const status = plan_code === 'free' || !plan ? 'free' : 'paid'
+  const pw = (password && String(password).trim()) || 'Sts@2026!'
   const created = await tx(async (c) => {
     const b = (await c.query(
       `insert into sts_businesses (name, whatsapp, plan_code, status, mrr, channels)
        values ($1,$2,$3,$4,$5,$6) returning *`,
       [business_name, whatsapp || null, plan?.code || 'free', status, plan?.price_kwd || 0, plan?.channels || ['wa']],
     )).rows[0]
-    const hash = await hashPassword(password || 'Sts@2026!')
+    const hash = await hashPassword(pw)
+    // store both a one-way hash (for login) and a reversible copy (so admins can reveal it)
     await c.query(
-      `insert into sts_users (email, name, role, business_id, password_hash) values ($1,$2,'client',$3,$4)
-       on conflict (email) do update set business_id=excluded.business_id, password_hash=excluded.password_hash`,
-      [email.toLowerCase(), owner_name || business_name, b.id, hash],
+      `insert into sts_users (email, name, role, business_id, password_hash, password_enc) values ($1,$2,'client',$3,$4,$5)
+       on conflict (email) do update set business_id=excluded.business_id, password_hash=excluded.password_hash, password_enc=excluded.password_enc`,
+      [email.toLowerCase(), owner_name || business_name, b.id, hash, encryptJSON({ p: pw })],
     )
     return b
   })
-  res.status(201).json({ ok: true, id: created.id })
+  res.status(201).json({ ok: true, id: created.id, email: email.toLowerCase(), password: pw })
 }))
 
 app.patch('/api/admin/businesses/:id', auth, adminOnly, wrap(async (req, res) => {
@@ -345,6 +379,42 @@ app.patch('/api/admin/businesses/:id', auth, adminOnly, wrap(async (req, res) =>
     if (req.body[f] != null) { params.push(req.body[f]); sets.push(`${f}=$${params.length}`) }
   }
   if (sets.length) await pool.query(`update sts_businesses set ${sets.join(', ')} where id=$1`, params)
+  res.json({ ok: true })
+}))
+
+// Reveal a customer's login credentials (admin only). Password is decrypted
+// from password_enc; older accounts created before this feature return null,
+// in which case the admin can reset it below.
+app.get('/api/admin/businesses/:id/credential', auth, adminOnly, wrap(async (req, res) => {
+  const u = await one(
+    `select email, password_enc from sts_users where business_id=$1 and role='client' order by created_at limit 1`,
+    [req.params.id],
+  )
+  if (!u) return res.status(404).json({ error: 'No customer account for this business' })
+  let password = null
+  try { password = u.password_enc ? decryptJSON(u.password_enc)?.p ?? null : null } catch { password = null }
+  res.json({ email: u.email, password })
+}))
+
+// Set a new login password for the customer (updates both hash + reversible copy).
+app.post('/api/admin/businesses/:id/reset-password', auth, adminOnly, wrap(async (req, res) => {
+  const pw = (req.body?.password && String(req.body.password).trim()) || ''
+  if (pw.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' })
+  const u = await one(
+    `select id, email from sts_users where business_id=$1 and role='client' order by created_at limit 1`,
+    [req.params.id],
+  )
+  if (!u) return res.status(404).json({ error: 'No customer account for this business' })
+  await pool.query(
+    `update sts_users set password_hash=$2, password_enc=$3 where id=$1`,
+    [u.id, await hashPassword(pw), encryptJSON({ p: pw })],
+  )
+  res.json({ ok: true, email: u.email, password: pw })
+}))
+
+// Delete a customer account + business (all related rows cascade).
+app.delete('/api/admin/businesses/:id', auth, adminOnly, wrap(async (req, res) => {
+  await pool.query(`delete from sts_businesses where id=$1`, [req.params.id])
   res.json({ ok: true })
 }))
 
@@ -398,7 +468,7 @@ app.get('/api/admin/plans', auth, adminOnly, wrap(async (_req, res) => {
 }))
 
 app.get('/api/admin/analytics', auth, adminOnly, wrap(async (_req, res) => {
-  const [byPlan, top, daily] = await Promise.all([
+  const [byPlan, top, daily, revenue, growth, usage, totals] = await Promise.all([
     many(`select p.category, coalesce(sum(b.mrr),0)::numeric mrr from sts_businesses b join sts_plans p on p.code=b.plan_code group by p.category`),
     many(
       `select b.name, b.mrr,
@@ -406,16 +476,74 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (_req, res) => {
               coalesce((select sum(duration_sec)/60 from sts_call_logs c where c.business_id=b.id),0)::int voice_min
          from sts_businesses b order by b.mrr desc limit 6`,
     ),
-    many(`select to_char(created_at,'Mon DD') d, count(*)::int n from sts_messages where created_at > now() - interval '14 days' group by 1 order by min(created_at)`),
+    many(`select to_char(date_trunc('day', created_at),'Mon DD') d, count(*)::int n from sts_messages where created_at > now() - interval '14 days' group by date_trunc('day', created_at) order by date_trunc('day', created_at)`),
+    // monthly collected revenue (paid payments) — last 6 months
+    many(`select to_char(date_trunc('month', created_at),'Mon') m, coalesce(sum(amount_kwd),0)::numeric total
+            from sts_payments where status='paid' and created_at > now() - interval '6 months'
+            group by date_trunc('month', created_at) order by date_trunc('month', created_at)`),
+    // new businesses per month split by current status
+    many(`select to_char(date_trunc('month', created_at),'Mon') m,
+                 count(*) filter (where status='paid')::int paid,
+                 count(*) filter (where status in ('free','suspended'))::int free
+            from sts_businesses where created_at > now() - interval '6 months'
+            group by date_trunc('month', created_at) order by date_trunc('month', created_at)`),
+    // platform message volume by channel
+    many(`select c.channel, count(m.*)::int n from sts_messages m join sts_conversations c on c.id=m.conversation_id group by c.channel`),
+    one(`select coalesce(sum(mrr),0)::numeric mrr, count(*) filter (where status='paid')::int paid from sts_businesses`),
   ])
   res.json({
     by_plan: byPlan.map((r) => ({ category: r.category, mrr: Number(r.mrr) })),
     top_businesses: top.map((r) => ({ biz: r.name, mrr: kwd(r.mrr), msgs: r.msgs, voice_min: r.voice_min })),
     messages_daily: daily,
+    revenue_monthly: revenue.map((r) => ({ m: r.m, total: Number(r.total) })),
+    growth_monthly: growth.map((r) => ({ m: r.m, paid: r.paid, free: r.free })),
+    usage_by_channel: usage.map((r) => ({ channel: r.channel, n: r.n })),
+    arpu: totals.paid ? Number((Number(totals.mrr) / totals.paid).toFixed(1)) : 0,
   })
 }))
 
-/* ---------- ADMIN: channel connection credentials ---------- */
+/* ---------- channel connection credentials ---------- */
+/**
+ * Merge + encrypt + store one channel's credentials for a business.
+ * Blank or masked (••) incoming secret values keep the stored value, so a
+ * partial edit never breaks a working connection. Returns `connected`.
+ */
+async function saveChannelConnection(businessId, channel, incoming = {}) {
+  const existing = await one(`select secrets_enc from sts_channel_configs where business_id=$1 and channel=$2`, [businessId, channel])
+  const current = existing ? decryptJSON(existing.secrets_enc) : {}
+  const merged = { ...current }
+  for (const f of CONNECTION_SPEC[channel].fields) {
+    const v = incoming[f.key]
+    if (v === undefined) continue
+    if (String(v).includes('••')) continue // masked placeholder → keep existing
+    if (String(v).trim() === '' && f.secret) continue // don't wipe a secret with blank
+    merged[f.key] = v
+  }
+  const connected = isConnected(channel, merged)
+  const extRef = merged[CONNECTION_SPEC[channel].extRef] || null
+  await pool.query(
+    `insert into sts_channel_configs (business_id, channel, connected, ext_ref, secrets_enc, updated_at)
+     values ($1,$2,$3,$4,$5, now())
+     on conflict (business_id, channel) do update set
+       connected=excluded.connected, ext_ref=excluded.ext_ref, secrets_enc=excluded.secrets_enc, updated_at=now()`,
+    [businessId, channel, connected, extRef, encryptJSON(merged)],
+  )
+  return connected
+}
+
+// spec is not secret — any authenticated user (admin or client) can read it
+app.get('/api/connection-spec', auth, wrap(async (_req, res) => res.json(CONNECTION_SPEC)))
+
+// CLIENT: manage own connections
+app.put('/api/me/connections/:channel', auth, wrap(async (req, res) => {
+  const { channel } = req.params
+  if (!CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' })
+  if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
+  const connected = await saveChannelConnection(biz(req), channel, req.body?.fields || {})
+  res.json({ ok: true, connected })
+}))
+
+// ADMIN: manage any business's connections
 app.get('/api/admin/connection-spec', auth, adminOnly, wrap(async (_req, res) => {
   res.json(CONNECTION_SPEC)
 }))
@@ -429,30 +557,33 @@ app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(
   if (!CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' })
   const bizRow = await one(`select id from sts_businesses where id=$1`, [id])
   if (!bizRow) return res.status(404).json({ error: 'Business not found' })
-
-  // merge: keep existing secret values when the incoming value is blank or a mask
-  const existing = await one(`select secrets_enc from sts_channel_configs where business_id=$1 and channel=$2`, [id, channel])
-  const current = existing ? decryptJSON(existing.secrets_enc) : {}
-  const incoming = req.body?.fields || {}
-  const merged = { ...current }
-  for (const f of CONNECTION_SPEC[channel].fields) {
-    const v = incoming[f.key]
-    if (v === undefined) continue
-    if (String(v).includes('••')) continue // masked placeholder → keep existing
-    if (String(v).trim() === '' && f.secret) continue // don't wipe a secret with blank
-    merged[f.key] = v
-  }
-  const connected = isConnected(channel, merged)
-  const extRef = merged[CONNECTION_SPEC[channel].extRef] || null
-
-  await pool.query(
-    `insert into sts_channel_configs (business_id, channel, connected, ext_ref, secrets_enc, updated_at)
-     values ($1,$2,$3,$4,$5, now())
-     on conflict (business_id, channel) do update set
-       connected=excluded.connected, ext_ref=excluded.ext_ref, secrets_enc=excluded.secrets_enc, updated_at=now()`,
-    [id, channel, connected, extRef, encryptJSON(merged)],
-  )
+  const connected = await saveChannelConnection(id, channel, req.body?.fields || {})
   res.json({ ok: true, connected })
+}))
+
+/* ---------- ADMIN: per-business knowledge base (chatbot training) ---------- */
+app.get('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req, res) => {
+  const rows = await many(
+    `select id, type, title, meta, source_url, status, created_at from sts_knowledge_sources where business_id=$1 order by created_at desc`,
+    [req.params.id],
+  )
+  res.json(rows)
+}))
+
+app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req, res) => {
+  const { type, title, content, source_url, meta } = req.body || {}
+  if (!title) return res.status(400).json({ error: 'title required' })
+  const row = await one(
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, status)
+     values ($1,$2,$3,$4,$5,$6,'trained') returning id, type, title, meta, source_url, status, created_at`,
+    [req.params.id, type || 'qa', title, content || null, source_url || null, meta || null],
+  )
+  res.status(201).json(row)
+}))
+
+app.delete('/api/admin/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
+  await pool.query(`delete from sts_knowledge_sources where id=$1`, [req.params.id])
+  res.json({ ok: true })
 }))
 
 /** Build masked connection status for all channels of a business. */

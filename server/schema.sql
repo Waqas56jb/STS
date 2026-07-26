@@ -59,10 +59,13 @@ create table if not exists sts_users (
   role          text not null default 'client',      -- admin | client
   business_id   uuid references sts_businesses(id) on delete cascade,
   password_hash text not null,
+  password_enc  text,                                  -- reversible copy so admins can reveal the login password
   last_login    timestamptz,
   created_at    timestamptz default now()
 );
 create index if not exists idx_sts_users_business on sts_users(business_id);
+-- add password_enc to already-created databases (idempotent)
+alter table sts_users add column if not exists password_enc text;
 
 -- ---------- access requests (landing page form) ----------
 create table if not exists sts_access_requests (

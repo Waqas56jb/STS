@@ -1,19 +1,26 @@
-import { useMemo } from 'react'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { palette } from '../../lib/charts'
 
 const gridY = { grid: { color: '#EDF1F5' } }
 const gridXoff = { grid: { display: false } }
 
+/** Shown instead of a chart when there is no data yet (empty database). */
+function ChartEmpty() {
+  return (
+    <div style={{ height: '100%', display: 'grid', placeItems: 'center', color: 'var(--mut)', fontSize: 13 }}>
+      No data yet
+    </div>
+  )
+}
+const hasRows = (d) => Array.isArray(d) && d.length > 0
+
+/* ---- Overview: messages per day (last 7 days) ---- */
 export function WeekChart({ data }) {
-  // real message-per-day data when available, else a sensible default
-  const has = Array.isArray(data) && data.length > 0
-  const labels = has ? data.map((d) => d.d) : ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-  const values = has ? data.map((d) => d.n) : [74, 92, 88, 110, 96, 121, 128]
+  if (!hasRows(data)) return <ChartEmpty />
   const chart = {
-    labels,
+    labels: data.map((d) => d.d),
     datasets: [{
-      label: 'Messages', data: values, borderColor: palette.teal,
+      label: 'Messages', data: data.map((d) => d.n), borderColor: palette.teal,
       backgroundColor: 'rgba(15,190,143,.12)', fill: true, tension: 0.4, borderWidth: 2.5, pointRadius: 3,
     }],
   }
@@ -23,65 +30,62 @@ export function WeekChart({ data }) {
 const CH_LABEL = { whatsapp: 'WhatsApp', instagram: 'Instagram', voice: 'Voice', web: 'Website' }
 const CH_COLOR = { whatsapp: '#25D366', instagram: palette.ig, voice: palette.vc, web: palette.web }
 
+/* ---- Overview: conversations by channel ---- */
 export function ChannelChart({ data }) {
-  const has = Array.isArray(data) && data.length > 0
-  const labels = has ? data.map((d) => CH_LABEL[d.channel] || d.channel) : ['WhatsApp', 'Instagram', 'Voice', 'Website']
-  const values = has ? data.map((d) => d.n) : [52, 27, 9, 12]
-  const colors = has ? data.map((d) => CH_COLOR[d.channel] || palette.navy) : ['#25D366', palette.ig, palette.vc, palette.web]
-  const chart = { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] }
+  if (!hasRows(data)) return <ChartEmpty />
+  const chart = {
+    labels: data.map((d) => CH_LABEL[d.channel] || d.channel),
+    datasets: [{
+      data: data.map((d) => d.n),
+      backgroundColor: data.map((d) => CH_COLOR[d.channel] || palette.navy),
+      borderWidth: 0,
+    }],
+  }
   return <Doughnut data={chart} options={{ maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom' } } }} />
 }
 
-export function MonthChart() {
-  const data = useMemo(
-    () => ({
-      labels: Array.from({ length: 30 }, (_, i) => i + 1),
-      datasets: [
-        {
-          data: Array.from({ length: 30 }, () => 60 + Math.round(Math.random() * 80)),
-          backgroundColor: palette.teal,
-          borderRadius: 5,
-        },
-      ],
-    }),
-    [],
-  )
+/* ---- Analytics: messages per day (last 30 days) ---- */
+export function MonthChart({ data }) {
+  if (!hasRows(data)) return <ChartEmpty />
+  const chart = {
+    labels: data.map((d) => d.d),
+    datasets: [{ data: data.map((d) => d.n), backgroundColor: palette.teal, borderRadius: 5 }],
+  }
   const options = {
     plugins: { legend: { display: false } },
     maintainAspectRatio: false,
     scales: { y: gridY, x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } } },
   }
-  return <Bar data={data} options={options} />
+  return <Bar data={chart} options={options} />
 }
 
-export function ResolutionChart() {
-  const data = {
+/* ---- Analytics: AI resolved vs human handoff ---- */
+export function ResolutionChart({ data }) {
+  const ai = data?.ai || 0
+  const human = data?.human || 0
+  if (ai + human === 0) return <ChartEmpty />
+  const chart = {
     labels: ['AI resolved', 'Human handoff'],
-    datasets: [{ data: [86, 14], backgroundColor: [palette.teal, palette.navy], borderWidth: 0 }],
+    datasets: [{ data: [ai, human], backgroundColor: [palette.teal, palette.navy], borderWidth: 0 }],
   }
   const options = { maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom' } } }
-  return <Doughnut data={data} options={options} />
+  return <Doughnut data={chart} options={options} />
 }
 
-export function LeadsChart() {
-  const data = {
-    labels: ['W1', 'W2', 'W3', 'W4'],
-    datasets: [
-      {
-        label: 'Leads',
-        data: [41, 55, 49, 68],
-        borderColor: palette.vc,
-        backgroundColor: 'rgba(91,141,239,.12)',
-        fill: true,
-        tension: 0.4,
-        borderWidth: 2.5,
-      },
-    ],
+/* ---- Analytics: leads per week ---- */
+export function LeadsChart({ data }) {
+  if (!hasRows(data)) return <ChartEmpty />
+  const chart = {
+    labels: data.map((d) => d.w),
+    datasets: [{
+      label: 'Leads', data: data.map((d) => d.n), borderColor: palette.vc,
+      backgroundColor: 'rgba(91,141,239,.12)', fill: true, tension: 0.4, borderWidth: 2.5,
+    }],
   }
   const options = {
     plugins: { legend: { display: false } },
     maintainAspectRatio: false,
     scales: { y: gridY, x: gridXoff },
   }
-  return <Line data={data} options={options} />
+  return <Line data={chart} options={options} />
 }

@@ -932,6 +932,34 @@ html[dir='rtl'] .admin-login .al-tag {
   gap: 10px;
   margin-bottom: 12px;
 }
+/* knowledge-base rows in the Training tab */
+.admin .kb-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+.admin .kb-item .ic {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #eaf9f3;
+  color: var(--lagoon-d, var(--lagoon));
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.admin .kb-item b {
+  font-size: 13px;
+  display: block;
+}
+.admin .kb-item span {
+  font-size: 11.5px;
+  color: var(--mut);
+}
 /* small "Connections" action button in the users table */
 .admin .btn-conn {
   background: #eef6ff;

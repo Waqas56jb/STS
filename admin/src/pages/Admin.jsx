@@ -9,6 +9,7 @@ import {
   Overview, Requests, Users, Payments, Invoices, Plans, Analytics, Settings,
 } from './admin/Views'
 import { ConnectionModal } from './admin/ConnectionModal'
+import { CredentialModal } from './admin/CredentialModal'
 
 const LOGO = import.meta.env.BASE_URL + 'logo.png'
 
@@ -39,20 +40,24 @@ function AdminInner({ onLogout }) {
   const [requests, setRequests] = useState([])
   const [users, setUsers] = useState([])
   const [summary, setSummary] = useState({ mrr: 0, paid: 0, free: 0, overdue: 0, overdue_amount: 0 })
+  const [analytics, setAnalytics] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [connBiz, setConnBiz] = useState(null) // business whose connections modal is open
+  const [credBiz, setCredBiz] = useState(null) // business whose credentials modal is open
   const formRef = useRef(null)
 
   // Load all admin data from the live API.
   async function reload() {
-    const [rq, ru, sm] = await Promise.all([
+    const [rq, ru, sm, an] = await Promise.all([
       apiGet('/admin/requests').catch(() => []),
       apiGet('/admin/businesses').catch(() => []),
       apiGet('/admin/summary').catch(() => null),
+      apiGet('/admin/analytics').catch(() => null),
     ])
     setRequests(Array.isArray(rq) ? rq : [])
     setUsers(Array.isArray(ru) ? ru : [])
     if (sm) setSummary(sm)
+    if (an) setAnalytics(an)
   }
   useEffect(() => { reload() }, [])
 
@@ -103,11 +108,13 @@ function AdminInner({ onLogout }) {
     e.preventDefault()
     const f = e.target
     const data = Object.fromEntries(new FormData(f))
-    await apiPostAuth('/admin/businesses', data).catch(() => {})
+    const res = await apiPostAuth('/admin/businesses', data).catch(() => null)
     setModalOpen(false)
     f.reset()
     await reload()
     done()
+    // show the new account's credentials so the admin can hand them over
+    if (res?.id) setCredBiz({ id: res.id, biz: data.business_name, email: res.email })
   }
 
   function logout() {
@@ -120,13 +127,13 @@ function AdminInner({ onLogout }) {
   function renderView() {
     switch (view) {
       case 'requests': return <Requests requests={requests} onApprove={approveReq} onReject={rejectReq} />
-      case 'users': return <Users users={users} onToggle={toggleSuspend} onConnections={setConnBiz} />
+      case 'users': return <Users users={users} onToggle={toggleSuspend} onConnections={setConnBiz} onCredentials={setCredBiz} />
       case 'payments': return <Payments />
       case 'invoices': return <Invoices />
       case 'plans': return <Plans />
-      case 'analytics': return <Analytics />
+      case 'analytics': return <Analytics analytics={analytics} />
       case 'settings': return <Settings />
-      default: return <Overview summary={summary} />
+      default: return <Overview summary={summary} analytics={analytics} />
     }
   }
 
@@ -195,6 +202,9 @@ function AdminInner({ onLogout }) {
 
       {/* CHANNEL CONNECTIONS MODAL */}
       {connBiz && <ConnectionModal business={connBiz} onClose={() => setConnBiz(null)} />}
+
+      {/* CUSTOMER CREDENTIALS MODAL (view password / reset / delete) */}
+      {credBiz && <CredentialModal business={credBiz} onClose={() => setCredBiz(null)} onChanged={reload} />}
     </div>
   )
 }

@@ -1,12 +1,22 @@
 /**
- * API helper.
+ * API + cross-app URLs.
  *
- * Base URL matches the original `window.STS_API || 'http://localhost:4000/api'`,
- * but in dev we default to the relative '/api' path so Vite's proxy
- * (vite.config.js) forwards to the Express server. Override with
- * `window.STS_API` at runtime if the API lives elsewhere.
+ * In local dev we use the relative '/api' (Vite proxies it to the Express
+ * server). In production (Vercel) we call the deployed backend directly.
+ * Override any of these with a VITE_* build env var or window.STS_API.
  */
-export const API = window.STS_API || '/api'
+const isLocal =
+  typeof location !== 'undefined' &&
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+
+const PROD_API = 'https://sts-backend-eight.vercel.app/api'
+
+export const API =
+  window.STS_API || import.meta.env.VITE_API_URL || (isLocal ? '/api' : PROD_API)
+
+/** Where an admin-role login is sent (separate Vercel deployment). */
+export const ADMIN_APP_URL =
+  import.meta.env.VITE_ADMIN_URL || (isLocal ? '/admin/' : 'https://sts-admin-roan.vercel.app/')
 
 export const WHATSAPP = 'https://wa.me/96500000000'
 

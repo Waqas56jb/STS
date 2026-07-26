@@ -6,7 +6,7 @@ import { ShowcaseMock } from '../components/ShowcaseMocks'
 import { T, useLang } from '../i18n/LangContext'
 import { useScrolled } from '../hooks/useScrolled'
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
-import { apiPost, saveSession, WHATSAPP } from '../lib/api'
+import { apiPost, saveSession, WHATSAPP, ADMIN_APP_URL } from '../lib/api'
 import { priceData, priceTabs } from '../data/pricing'
 
 // transparent brand logo from public/ (base-aware so it works at any deploy path)
@@ -288,20 +288,18 @@ function LoginModal({ open, onClose }) {
       // the client dashboard is a route in this app (matches the original
       // admin/admin.html vs client/client.html redirect).
       if (user.role === 'admin') {
-        window.location.href = '/admin/'
+        window.location.href = ADMIN_APP_URL
       } else {
         navigate('/dashboard')
       }
     } catch (ex) {
-      // A real 401/403 means wrong credentials → show the error.
-      // Anything else (network TypeError, or a 5xx when the API server is
-      // offline) → open the dashboard in demo mode, mirroring the
-      // dashboard's own try-API-then-demo behaviour.
-      if (ex.status === 401 || ex.status === 403) {
-        setErr(isAr ? 'بيانات الدخول غير صحيحة' : ex.message || 'Invalid credentials')
+      // Real API only — no demo fallback. Show the server's error.
+      if (ex.status === 403) {
+        setErr(isAr ? 'الحساب موقوف — تواصل مع الدعم' : ex.message || 'Account suspended')
+      } else if (ex.status === 401) {
+        setErr(isAr ? 'بيانات الدخول غير صحيحة' : 'Invalid credentials')
       } else {
-        saveSession({ token: 'demo', user: { role: 'client', business_name: 'Al Noor Perfumes', plan: 'Complete Growth' } })
-        navigate('/dashboard')
+        setErr(isAr ? 'تعذّر الاتصال بالخادم — حاول مرة أخرى' : 'Cannot reach the server — please try again')
       }
     }
   }

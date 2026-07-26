@@ -1,12 +1,21 @@
 /**
- * API helper.
+ * API + cross-app URLs.
  *
- * Base URL matches the original `window.STS_API || 'http://localhost:4000/api'`,
- * but in dev we default to the relative '/api' path so Vite's proxy
- * (vite.config.js) forwards to the Express server. Override with
- * `window.STS_API` at runtime if the API lives elsewhere.
+ * Local dev uses the relative '/api' (Vite proxy). Production (Vercel)
+ * calls the deployed backend directly. Override with VITE_* or window.STS_API.
  */
-export const API = window.STS_API || '/api'
+const isLocal =
+  typeof location !== 'undefined' &&
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+
+const PROD_API = 'https://sts-backend-eight.vercel.app/api'
+
+export const API =
+  window.STS_API || import.meta.env.VITE_API_URL || (isLocal ? '/api' : PROD_API)
+
+/** The client-facing site (separate Vercel deployment). */
+export const CLIENT_APP_URL =
+  import.meta.env.VITE_CLIENT_URL || (isLocal ? '/' : 'https://sts-blond.vercel.app/')
 
 export const WHATSAPP = 'https://wa.me/96500000000'
 
@@ -47,6 +56,13 @@ export async function apiPut(path, body) {
 
 export async function apiPatch(path, body) {
   const res = await fetch(API + path, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify(body) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Request failed')
+  return data
+}
+
+export async function apiDelete(path) {
+  const res = await fetch(API + path, { method: 'DELETE', headers: authHeaders() })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || 'Request failed')
   return data

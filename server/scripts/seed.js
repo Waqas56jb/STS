@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { pool, one, many } from '../db.js'
 import { hashPassword } from '../lib/auth.js'
+import { encryptJSON } from '../lib/crypto.js'
 
 /**
  * Idempotent seed:
@@ -17,12 +18,13 @@ const CLIENT_PW = 'client@123!'
 async function upsertUser({ email, name, role, business_id = null, password }) {
   const hash = await hashPassword(password)
   await pool.query(
-    `insert into sts_users (email, name, role, business_id, password_hash)
-     values ($1,$2,$3,$4,$5)
+    `insert into sts_users (email, name, role, business_id, password_hash, password_enc)
+     values ($1,$2,$3,$4,$5,$6)
      on conflict (email) do update
        set name=excluded.name, role=excluded.role,
-           business_id=excluded.business_id, password_hash=excluded.password_hash`,
-    [email.toLowerCase(), name, role, business_id, hash],
+           business_id=excluded.business_id, password_hash=excluded.password_hash,
+           password_enc=excluded.password_enc`,
+    [email.toLowerCase(), name, role, business_id, hash, encryptJSON({ p: password })],
   )
 }
 

@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { T, useLang } from '../../i18n/LangContext'
 import { WHATSAPP, apiGet, apiPostAuth, apiDelete } from '../../lib/api'
 import { Switch, useToast } from './ui'
+import { ConnectionForm, BotSettings } from './ConnectionForm'
 import { WeekChart, ChannelChart, MonthChart, ResolutionChart, LeadsChart } from './Charts'
 
 const pct = (u) => (u && u.quota ? Math.min(100, Math.round((u.used / u.quota) * 100)) : 0)
@@ -64,110 +65,30 @@ export function Overview({ summary, usage = {} }) {
 
 /* ===================== WHATSAPP ===================== */
 export function WhatsAppView() {
-  const toast = useToast()
   return (
     <div className="grid g2">
-      <div className="card">
-        <h3><Icon name="plug-zap" /><T k="wa_conn" /></h3>
-        <div className="row">
-          <div><b><T k="wa_st" /></b><p><T k="wa_stp" /></p></div>
-          <span className="badge b-ok"><T k="connected" /></span>
-        </div>
-        <div className="field" style={{ marginTop: 14 }}><label><T k="wa_num" /></label><input defaultValue="+965 5000 1234" readOnly /></div>
-        <div className="field"><label><T k="wa_disp" /></label><input defaultValue="Al Noor Perfumes" readOnly /></div>
-        <div className="field"><label>Phone Number ID</label><input defaultValue="1093345XXXXXXX" readOnly /></div>
-        <div className="hint"><T k="wa_note" /></div>
-      </div>
-      <div className="card">
-        <h3><Icon name="bot" /><T k="agent_beh" /></h3>
-        <div className="row"><div><b><T k="auto_re" /></b><p><T k="auto_rep" /></p></div><Switch defaultChecked /></div>
-        <div className="row"><div><b><T k="handoff" /></b><p><T k="handoffp" /></p></div><Switch defaultChecked /></div>
-        <div className="row"><div><b><T k="ooh" /></b><p><T k="oohp" /></p></div><Switch /></div>
-        <div className="field" style={{ marginTop: 14 }}><label><T k="greet" /></label>
-          <textarea rows="2" defaultValue="Hala! 👋 Welcome to Al Noor Perfumes. I'm your AI assistant — how can I help you today?" />
-        </div>
-        <div className="field"><label><T k="tone" /></label>
-          <SelectI18n options={['tn1', 'tn2', 'tn3']} />
-        </div>
-        <button className="btn btn-g" onClick={() => toast()}><Icon name="save" size={16} /><T k="save" /></button>
-      </div>
+      <ConnectionForm channel="whatsapp" />
+      <BotSettings channel="whatsapp" />
     </div>
   )
 }
 
 /* ===================== INSTAGRAM ===================== */
 export function InstagramView() {
-  const kws = [
-    { k: 'PRICE', d: 'ig_kw1' },
-    { k: 'DELIVERY', d: 'ig_kw2' },
-    { k: 'OFFER', d: 'ig_kw3' },
-  ]
   return (
     <div className="grid g2">
-      <div className="card">
-        <h3><Icon name="plug-zap" /><T k="ig_conn" /></h3>
-        <div className="row">
-          <div><b>@alnoor.perfumes</b><p><T k="ig_stp" /></p></div>
-          <span className="badge b-ok"><T k="connected" /></span>
-        </div>
-        <div className="field" style={{ marginTop: 14 }}><label><T k="ig_page" /></label><input defaultValue="Al Noor Perfumes KW" readOnly /></div>
-        <div className="row"><div><b><T k="ig_dm" /></b></div><Switch defaultChecked /></div>
-        <div className="row"><div><b><T k="ig_story" /></b></div><Switch defaultChecked /></div>
-        <div className="row"><div><b><T k="ig_cmt" /></b><p><T k="ig_cmtp" /></p></div><Switch /></div>
-      </div>
-      <div className="card">
-        <h3><Icon name="zap" /><T k="ig_kw" /></h3>
-        {kws.map((k) => (
-          <div className="kb-item" key={k.k}>
-            <div className="ic"><Icon name="hash" /></div>
-            <div style={{ flex: 1 }}><b>{k.k}</b><span><T k={k.d} /></span></div>
-            <button className="btn btn-o" style={{ padding: '6px 12px' }}><T k="edit" /></button>
-          </div>
-        ))}
-        <button className="btn btn-p"><Icon name="plus" size={16} /><T k="add_kw" /></button>
-      </div>
+      <ConnectionForm channel="instagram" />
+      <BotSettings channel="instagram" />
     </div>
   )
 }
 
 /* ===================== VOICE ===================== */
 export function VoiceView() {
-  const toast = useToast()
-  const recs = [
-    { ic: 'phone-incoming', c: '#E0EAFF', col: '#3730A3', b: '+965 66xx 1122 · 3:42 min', d: 'vc_r1' },
-    { ic: 'phone-incoming', c: '#E0EAFF', col: '#3730A3', b: '+965 55xx 7788 · 1:58 min', d: 'vc_r2' },
-    { ic: 'phone-outgoing', c: '#FEF3C7', col: '#92400E', b: '+965 99xx 3344 · 4:15 min', d: 'vc_r3' },
-  ]
   return (
-    <div className="grid g2" style={{ marginBottom: 18 }}>
-      <div className="card">
-        <h3><Icon name="phone-call" /><T k="vc_cfg" /></h3>
-        <div className="row"><div><b><T k="vc_num" /></b><p>+965 2222 8899 · Twilio</p></div><span className="badge b-ok"><T k="active" /></span></div>
-        <div className="field" style={{ marginTop: 14 }}><label><T k="vc_voice" /></label>
-          <select>
-            <option>Layla — Arabic (Kuwaiti), warm</option>
-            <option>Sara — Arabic (MSA), professional</option>
-            <option>Emma — English, friendly</option>
-            <option>ElevenLabs — Aria (Premium)</option>
-          </select>
-        </div>
-        <div className="field"><label><T k="vc_greetl" /></label>
-          <textarea rows="2" defaultValue="Thank you for calling Al Noor Perfumes. This is the AI assistant — how may I help you?" />
-        </div>
-        <div className="row"><div><b><T k="vc_in" /></b></div><Switch defaultChecked /></div>
-        <div className="row"><div><b><T k="vc_fw" /></b></div><Switch defaultChecked /></div>
-        <button className="btn btn-g" onClick={() => toast()}><Icon name="save" size={16} /><T k="save" /></button>
-      </div>
-      <div className="card">
-        <h3><Icon name="file-audio" /><T k="vc_rec" /></h3>
-        {recs.map((r, i) => (
-          <div className="kb-item" key={i}>
-            <div className="ic" style={{ background: r.c, color: r.col }}><Icon name={r.ic} /></div>
-            <div style={{ flex: 1 }}><b>{r.b}</b><span><T k={r.d} /></span></div>
-            <button className="btn btn-o" style={{ padding: '6px 12px' }}><T k="view_lbl" /></button>
-          </div>
-        ))}
-      </div>
+    <div className="grid g2">
+      <ConnectionForm channel="voice" />
+      <BotSettings channel="voice" />
     </div>
   )
 }
@@ -284,33 +205,19 @@ export function KnowledgeView() {
 
 /* ===================== ANALYTICS ===================== */
 export function AnalyticsView() {
-  const rows = [
-    { q: 'q1', ct: 214, res: '97%', b: 'b-ok' },
-    { q: 'q2', ct: 188, res: '99%', b: 'b-ok' },
-    { q: 'q3', ct: 96, res: '100%', b: 'b-ok' },
-    { q: 'q4', ct: 41, res: '62%', b: 'b-warn' },
-  ]
+  const [a, setA] = useState(null)
+  useEffect(() => { apiGet('/me/analytics').then(setA).catch(() => {}) }, [])
   return (
     <>
       <div className="grid g2" style={{ marginBottom: 18 }}>
-        <div className="card"><h3><Icon name="trending-up" /><T k="an_c1" /></h3><div className="chart-box"><MonthChart /></div></div>
-        <div className="card"><h3><Icon name="bot" /><T k="an_c2" /></h3><div className="chart-box"><ResolutionChart /></div></div>
+        <div className="card"><h3><Icon name="trending-up" /><T k="an_c1" /></h3><div className="chart-box"><MonthChart data={a?.messages_daily} /></div></div>
+        <div className="card"><h3><Icon name="bot" /><T k="an_c2" /></h3><div className="chart-box"><ResolutionChart data={a?.resolution} /></div></div>
       </div>
       <div className="grid g2">
         <div className="card">
-          <h3><Icon name="help-circle" /><T k="an_c3" /></h3>
-          <div className="tbl">
-            <table>
-              <thead><tr><th><T k="th_q" /></th><th><T k="th_ct" /></th><th><T k="th_res" /></th></tr></thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.q}><td><T k={r.q} /></td><td>{r.ct}</td><td><span className={`badge ${r.b}`}>{r.res}</span></td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <h3><Icon name="target" /><T k="an_c4" /></h3>
+          <div className="chart-box"><LeadsChart data={a?.leads_weekly} /></div>
         </div>
-        <div className="card"><h3><Icon name="target" /><T k="an_c4" /></h3><div className="chart-box"><LeadsChart /></div></div>
       </div>
     </>
   )

@@ -13,7 +13,7 @@ const LOGO = import.meta.env.BASE_URL + 'logo.png'
  *  - success + role 'admin' → save session, enter the panel
  *  - success but not admin  → refuse with a clear message
  *  - 401/403                → "invalid credentials"
- *  - server offline (5xx / network) → demo admin login so it stays usable
+ *  - server offline (5xx / network) → "cannot reach the server" (real API only)
  */
 export function AdminLogin({ onSuccess }) {
   const { t, toggle, isAr } = useAdminT()
@@ -36,14 +36,13 @@ export function AdminLogin({ onSuccess }) {
       saveSession({ token, user })
       onSuccess()
     } catch (ex) {
+      // Real API only — no demo fallback.
       if (ex.status === 401 || ex.status === 403) {
         setErr(t('lg_invalid'))
-        setBusy(false)
       } else {
-        // API offline → demo admin session so the panel is reachable
-        saveSession({ token: 'demo-admin', user: { role: 'admin', name: 'STS Admin', business_name: 'STS Platform' } })
-        onSuccess()
+        setErr(isAr ? 'تعذّر الاتصال بالخادم' : 'Cannot reach the server')
       }
+      setBusy(false)
     }
   }
 
