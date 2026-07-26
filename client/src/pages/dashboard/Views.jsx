@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { T, useLang } from '../../i18n/LangContext'
-import { WHATSAPP, apiGet, apiPostAuth, apiDelete } from '../../lib/api'
+import { WHATSAPP, apiGet, apiPut, apiPostAuth, apiDelete, getUser } from '../../lib/api'
 import { Switch, useToast } from './ui'
 import { ConnectionForm, BotSettings } from './ConnectionForm'
 import { WeekChart, ChannelChart, MonthChart, ResolutionChart, LeadsChart } from './Charts'
@@ -11,6 +11,7 @@ const num = (n) => Number(n || 0).toLocaleString('en')
 
 /* ===================== OVERVIEW ===================== */
 export function Overview({ summary, usage = {} }) {
+  const { t } = useLang()
   const wa = usage.wa_messages
   const ig = usage.ig_contacts
   const vc = usage.voice_minutes
@@ -20,22 +21,22 @@ export function Overview({ summary, usage = {} }) {
         <div className="card stat">
           <div className="lbl"><T k="st_conv" /><Icon name="messages-square" /></div>
           <div className="val">{summary.conv}</div>
-          <div className="trend">▲ 12% <T k="vs_yest" /></div>
+          <div className="trend"><b>{num(summary.conversations_total)}</b> {t('ov_alltime')}</div>
         </div>
         <div className="card stat">
           <div className="lbl"><T k="st_ai" /><Icon name="bot" /></div>
           <div className="val">{summary.ai}%</div>
-          <div className="trend">▲ 4%</div>
+          <div className="trend"><b>{num(summary.messages_total)}</b> {t('ov_msgs')}</div>
         </div>
         <div className="card stat">
           <div className="lbl"><T k="st_leads" /><Icon name="target" /></div>
           <div className="val">{summary.leads}</div>
-          <div className="trend">▲ 9%</div>
+          <div className="trend">{t('ov_alltime')}</div>
         </div>
         <div className="card stat">
-          <div className="lbl"><T k="st_rt" /><Icon name="timer" /></div>
-          <div className="val">2.1s</div>
-          <div className="trend"><T k="instant" /></div>
+          <div className="lbl"><T k="st_msgs" /><Icon name="messages-square" /></div>
+          <div className="val">{num(summary.messages_total)}</div>
+          <div className="trend">{t('ov_allch')}</div>
         </div>
       </div>
       <div className="grid g2" style={{ marginBottom: 18 }}>
@@ -94,11 +95,16 @@ export function VoiceView() {
 }
 
 /* ===================== WIDGET ===================== */
-const EMBED = '<script src="https://widget.sts.app/w.js"\n data-business="biz_alnoor_7f3a" defer></script>'
 export function WidgetView() {
   const toast = useToast()
+  const [profile, setProfile] = useState(null)
+  useEffect(() => { apiGet('/me/profile').then(setProfile).catch(() => {}) }, [])
+
+  const bizName = profile?.business_name || getUser().business_name || ''
+  const widgetKey = profile?.widget_key || ''
+  const embed = `<script src="https://widget.sts.app/w.js"\n data-business="${widgetKey}" defer></script>`
   function copy() {
-    navigator.clipboard?.writeText(EMBED).catch(() => {})
+    navigator.clipboard?.writeText(embed).catch(() => {})
     toast()
   }
   return (
@@ -109,7 +115,7 @@ export function WidgetView() {
         <div className="code">
           {'<script src="https://widget.sts.app/w.js"'}
           <br />
-          {' data-business="biz_alnoor_7f3a" defer></script>'}
+          {` data-business="${widgetKey}" defer></script>`}
           <button className="copy" onClick={copy}><T k="copy" /></button>
         </div>
         <div className="row" style={{ marginTop: 16 }}><div><b><T k="wd_on" /></b></div><Switch defaultChecked /></div>
@@ -121,7 +127,7 @@ export function WidgetView() {
         <h3 style={{ color: '#fff' }}><Icon name="eye" style={{ color: 'var(--lagoon)' }} /><T k="wd_prev" /></h3>
         <div style={{ flex: 1, position: 'relative', border: '1px dashed rgba(255,255,255,.2)', borderRadius: 14, minHeight: 320 }}>
           <div style={{ position: 'absolute', bottom: 16, insetInlineEnd: 16, width: 270, background: '#fff', borderRadius: 16, color: 'var(--ink)', boxShadow: '0 20px 50px rgba(0,0,0,.5)', overflow: 'hidden' }}>
-            <div style={{ background: 'var(--lagoon)', padding: '13px 15px', color: '#03271B', fontWeight: 800, fontSize: 13.5 }}>Al Noor Perfumes</div>
+            <div style={{ background: 'var(--lagoon)', padding: '13px 15px', color: '#03271B', fontWeight: 800, fontSize: 13.5 }}>{bizName || <T k="wd_prev" />}</div>
             <div style={{ padding: 13, fontSize: 12.5 }}>
               <div style={{ background: '#F0F3F6', borderRadius: 10, padding: '9px 11px', marginBottom: 8 }}><T k="wd_m1" /></div>
               <div style={{ background: '#E8FBF4', borderRadius: 10, padding: '9px 11px', textAlign: 'end' }}><T k="wd_m2" /></div>
@@ -275,24 +281,58 @@ function useSessionUser() {
 /* ===================== SETTINGS ===================== */
 export function SettingsView() {
   const toast = useToast()
-  const { t } = useLang()
+  const { t, isAr } = useLang()
+  const [p, setP] = useState({ business_name: '', email: '', hours: '', language: 'auto' })
+  const [pw, setPw] = useState({ current: '', next: '' })
+  useEffect(() => { apiGet('/me/profile').then((d) => d && setP((s) => ({ ...s, ...d }))).catch(() => {}) }, [])
+  const set = (k, v) => setP((s) => ({ ...s, [k]: v }))
+
+  async function saveProfile() {
+    try {
+      await apiPut('/me/profile', { business_name: p.business_name, hours: p.hours, language: p.language })
+      toast()
+    } catch { toast(t('save_failed')) }
+  }
+  async function changePw() {
+    if (!pw.current || pw.next.trim().length < 4) { toast(isAr ? 'كلمة مرور قصيرة جداً' : 'Password too short'); return }
+    try {
+      await apiPut('/me/password', { current: pw.current, next: pw.next.trim() })
+      setPw({ current: '', next: '' })
+      toast(isAr ? 'تم تحديث كلمة المرور ✓' : 'Password updated ✓')
+    } catch { toast(isAr ? 'كلمة المرور الحالية غير صحيحة' : 'Current password is incorrect') }
+  }
+
   return (
     <div className="grid g2">
       <div className="card">
         <h3><Icon name="building-2" /><T k="se_biz" /></h3>
-        <div className="field"><label><T k="f_biz" /></label><input defaultValue="Al Noor Perfumes" /></div>
-        <div className="field"><label><T k="f_email" /></label><input defaultValue="owner@alnoorperfumes.com" /></div>
-        <div className="field"><label><T k="se_hrs" /></label><input defaultValue="Sat–Thu, 10:00 – 22:00" /></div>
-        <div className="field"><label><T k="se_lang" /></label>
-          <select><option>{t('se_auto')}</option><option>العربية</option><option>English</option></select>
+        <div className="field"><label><T k="f_biz" /></label>
+          <input value={p.business_name} onChange={(e) => set('business_name', e.target.value)} />
         </div>
-        <button className="btn btn-g" onClick={() => toast()}><Icon name="save" size={16} /><T k="save" /></button>
+        <div className="field"><label><T k="f_email" /></label>
+          <input value={p.email} readOnly style={{ background: '#f6f8fa', color: 'var(--mut)' }} />
+        </div>
+        <div className="field"><label><T k="se_hrs" /></label>
+          <input value={p.hours} onChange={(e) => set('hours', e.target.value)} placeholder="Sat–Thu, 10:00 – 22:00" />
+        </div>
+        <div className="field"><label><T k="se_lang" /></label>
+          <select value={p.language} onChange={(e) => set('language', e.target.value)}>
+            <option value="auto">{t('se_auto')}</option>
+            <option value="ar">العربية</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <button className="btn btn-g" onClick={saveProfile}><Icon name="save" size={16} /><T k="save" /></button>
       </div>
       <div className="card">
         <h3><Icon name="lock" /><T k="se_sec" /></h3>
-        <div className="field"><label><T k="se_cur" /></label><input type="password" placeholder="••••••••" /></div>
-        <div className="field"><label><T k="se_new" /></label><input type="password" placeholder="••••••••" /></div>
-        <button className="btn btn-p"><Icon name="key-round" size={16} /><T k="se_upd" /></button>
+        <div className="field"><label><T k="se_cur" /></label>
+          <input type="password" placeholder="••••••••" value={pw.current} onChange={(e) => setPw((s) => ({ ...s, current: e.target.value }))} autoComplete="current-password" />
+        </div>
+        <div className="field"><label><T k="se_new" /></label>
+          <input type="password" placeholder="••••••••" value={pw.next} onChange={(e) => setPw((s) => ({ ...s, next: e.target.value }))} autoComplete="new-password" />
+        </div>
+        <button className="btn btn-p" onClick={changePw}><Icon name="key-round" size={16} /><T k="se_upd" /></button>
         <div className="row" style={{ marginTop: 20 }}><div><b><T k="se_notif" /></b><p><T k="se_notifp" /></p></div><Switch defaultChecked /></div>
       </div>
     </div>

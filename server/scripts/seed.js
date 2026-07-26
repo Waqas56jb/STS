@@ -302,6 +302,20 @@ async function run() {
     console.log('✓ access requests seeded')
   }
 
+  // 12. default platform settings (admin can edit later; keep existing values)
+  const defaultSettings = {
+    support_whatsapp: '+965 0000 0000',
+    support_email: 'sts@shgardiauto.com',
+    currency: 'KWD',
+  }
+  for (const [key, value] of Object.entries(defaultSettings)) {
+    await pool.query(
+      `insert into sts_settings (key, value) values ($1,$2) on conflict (key) do nothing`,
+      [key, value],
+    )
+  }
+  console.log('✓ platform settings seeded')
+
   console.log('\n✓ SEED COMPLETE')
   console.log('  Admin login :', process.env.ADMIN_EMAIL, '/', process.env.ADMIN_PASSWORD)
   console.log('  Client login: owner@alnoorperfumes.com /', CLIENT_PW)

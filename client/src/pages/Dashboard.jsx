@@ -62,7 +62,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [view, setView] = useState('overview')
   const [sideOpen, setSideOpen] = useState(false)
-  const [summary, setSummary] = useState({ conv: 0, ai: 0, leads: 0, by_channel: [], week: [] })
+  const [summary, setSummary] = useState({ conv: 0, ai: 0, leads: 0, by_channel: [], week: [], conversations_total: 0, messages_total: 0 })
   const [usage, setUsage] = useState({})
 
   const user = getUser()
@@ -86,6 +86,8 @@ export default function Dashboard() {
           leads: s.leads ?? 0,
           by_channel: s.by_channel || [],
           week: s.week || [],
+          conversations_total: s.conversations_total ?? 0,
+          messages_total: s.messages_total ?? 0,
         })
       })
       .catch(() => {})
@@ -142,7 +144,7 @@ export default function Dashboard() {
             </div>
             <div className="top-actions">
               <span className="pill"><span className="dot" /><T k="bot_live" /></span>
-              <Avatar name={user.business_name || 'Al Noor'} size={38} variant="solid" />
+              <Avatar name={user.business_name || user.name || 'STS'} size={38} variant="solid" />
             </div>
           </div>
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { Avatar } from '../../components/Avatar'
 import { useAdminT } from '../../i18n/admin'
-import { WHATSAPP, apiGet } from '../../lib/api'
+import { WHATSAPP, apiGet, apiPut } from '../../lib/api'
 import { chIco, planLbl, stBadge } from '../../data/adminDemo'
 import { useToast } from '../ui'
 import {
@@ -269,25 +269,73 @@ export function Analytics({ analytics: passed }) {
 }
 
 /* ===================== SETTINGS ===================== */
+const KEY_FIELDS = [
+  { k: 'meta_app_id', label: 'Meta App ID' },
+  { k: 'openai_key', label: 'OpenAI API Key' },
+  { k: 'twilio_sid', label: 'Twilio SID' },
+  { k: 'elevenlabs_key', label: 'ElevenLabs Key' },
+]
+
 export function Settings() {
-  const { t } = useAdminT()
+  const { t, isAr } = useAdminT()
   const toast = useToast()
+  // `s` holds server values (secrets arrive masked); `sec` holds new secret input
+  const [s, setS] = useState({ support_whatsapp: '', support_email: '', currency: 'KWD' })
+  const [sec, setSec] = useState({ meta_app_id: '', openai_key: '', twilio_sid: '', elevenlabs_key: '' })
+
+  const load = () => apiGet('/admin/settings').then((d) => d && setS((x) => ({ ...x, ...d }))).catch(() => {})
+  useEffect(() => { load() }, [])
+  const set = (k, v) => setS((x) => ({ ...x, [k]: v }))
+
+  async function savePlatform() {
+    try {
+      await apiPut('/admin/settings', { support_whatsapp: s.support_whatsapp, support_email: s.support_email, currency: s.currency })
+      toast(isAr ? 'تم الحفظ ✓' : 'Saved ✓')
+    } catch { toast(isAr ? 'فشل الحفظ' : 'Save failed') }
+  }
+  async function saveKeys() {
+    try {
+      await apiPut('/admin/settings', sec) // only non-blank secrets are stored (server merges)
+      setSec({ meta_app_id: '', openai_key: '', twilio_sid: '', elevenlabs_key: '' })
+      await load()
+      toast(isAr ? 'تم الحفظ ✓' : 'Saved ✓')
+    } catch { toast(isAr ? 'فشل الحفظ' : 'Save failed') }
+  }
+
   return (
     <div className="grid g2">
       <div className="card">
         <h3><Icon name="settings" /><span>{t('se_pl')}</span></h3>
-        <div className="field"><label>{t('se_wa')}</label><input defaultValue="+965 0000 0000" /></div>
-        <div className="field"><label>{t('se_em')}</label><input defaultValue="sts@shgardiauto.com" /></div>
-        <div className="field"><label>{t('se_cur')}</label><select><option>KWD</option><option>USD</option></select></div>
-        <button className="btn btn-g" onClick={() => toast()}><Icon name="save" size={16} />{t('save')}</button>
+        <div className="field"><label>{t('se_wa')}</label>
+          <input value={s.support_whatsapp} onChange={(e) => set('support_whatsapp', e.target.value)} placeholder="+965 0000 0000" />
+        </div>
+        <div className="field"><label>{t('se_em')}</label>
+          <input value={s.support_email} onChange={(e) => set('support_email', e.target.value)} placeholder="support@yourcompany.com" />
+        </div>
+        <div className="field"><label>{t('se_cur')}</label>
+          <select value={s.currency || 'KWD'} onChange={(e) => set('currency', e.target.value)}>
+            <option value="KWD">KWD</option><option value="USD">USD</option>
+          </select>
+        </div>
+        <button className="btn btn-g" onClick={savePlatform}><Icon name="save" size={16} />{t('save')}</button>
       </div>
       <div className="card">
         <h3><Icon name="key-round" /><span>{t('se_keys')}</span></h3>
-        <div className="field"><label>Meta App ID</label><input defaultValue="10933•••••••" type="password" /></div>
-        <div className="field"><label>OpenAI API Key</label><input defaultValue="sk-•••••••••••" type="password" /></div>
-        <div className="field"><label>Twilio SID</label><input defaultValue="AC59•••••••••" type="password" /></div>
-        <div className="field"><label>ElevenLabs Key</label><input defaultValue="el_••••••••••" type="password" /></div>
-        <button className="btn btn-p" onClick={() => toast()}><Icon name="save" size={16} />{t('save')}</button>
+        {KEY_FIELDS.map((f) => (
+          <div className="field" key={f.k}><label>{f.label}</label>
+            <input
+              type="password"
+              value={sec[f.k]}
+              onChange={(e) => setSec((x) => ({ ...x, [f.k]: e.target.value }))}
+              placeholder={s[f.k] || (isAr ? 'غير مضبوط' : 'not set')}
+              autoComplete="off"
+            />
+          </div>
+        ))}
+        <button className="btn btn-p" onClick={saveKeys}><Icon name="save" size={16} />{t('save')}</button>
+        <p style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 10 }}>
+          {isAr ? 'اترك الحقل فارغاً للإبقاء على المفتاح المحفوظ. المفاتيح تُحفظ مشفّرة.' : 'Leave a field blank to keep the stored key. Keys are stored encrypted.'}
+        </p>
       </div>
     </div>
   )

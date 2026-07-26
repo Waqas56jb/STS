@@ -3,7 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import { pool, one, many, tx } from './db.js'
 import { comparePassword, hashPassword, signToken, auth, adminOnly } from './lib/auth.js'
-import { encryptJSON, decryptJSON, maskCredentials } from './lib/crypto.js'
+import { encryptJSON, decryptJSON, maskCredentials, maskValue } from './lib/crypto.js'
 import { CONNECTION_SPEC, CHANNELS, isConnected } from './lib/channels.js'
 import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
 
@@ -126,13 +126,62 @@ app.get('/api/me/summary', auth, wrap(async (req, res) => {
        from sts_messages where business_id=$1 and created_at > now() - interval '7 days'
       group by 1`, [b],
   )
+  const totals = await one(
+    `select (select count(*)::int from sts_conversations where business_id=$1) conv_total,
+            (select count(*)::int from sts_messages where business_id=$1) msg_total`, [b],
+  )
   res.json({
     conversations_today: convToday.n,
     ai_resolved: ai,
     leads: leads.n,
     by_channel: byChannel,
     week,
+    conversations_total: totals.conv_total,
+    messages_total: totals.msg_total,
   })
+}))
+
+// Business profile for the customer Settings + Widget pages.
+app.get('/api/me/profile', auth, wrap(async (req, res) => {
+  const row = await one(
+    `select b.name, b.whatsapp, b.hours, b.language, b.widget_key, u.email
+       from sts_businesses b
+       join sts_users u on u.business_id=b.id and u.role='client'
+      where b.id=$1 order by u.created_at limit 1`,
+    [biz(req)],
+  )
+  if (!row) return res.status(404).json({ error: 'Profile not found' })
+  res.json({
+    business_name: row.name, email: row.email, whatsapp: row.whatsapp || '',
+    hours: row.hours || '', language: row.language || 'auto', widget_key: row.widget_key,
+  })
+}))
+
+app.put('/api/me/profile', auth, wrap(async (req, res) => {
+  const { business_name, whatsapp, hours, language } = req.body || {}
+  const sets = [], params = [biz(req)]
+  const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }
+  add('name', business_name)
+  add('whatsapp', whatsapp)
+  add('hours', hours)
+  add('language', language)
+  if (sets.length) await pool.query(`update sts_businesses set ${sets.join(', ')} where id=$1`, params)
+  res.json({ ok: true })
+}))
+
+// Customer changes their own login password (verifies the current one).
+app.put('/api/me/password', auth, wrap(async (req, res) => {
+  const current = String(req.body?.current || '')
+  const next = String(req.body?.next || '').trim()
+  if (next.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' })
+  const u = await one(`select id, password_hash from sts_users where id=$1`, [req.user.id])
+  if (!u || !(await comparePassword(current, u.password_hash)))
+    return res.status(401).json({ error: 'Current password is incorrect' })
+  await pool.query(
+    `update sts_users set password_hash=$2, password_enc=$3 where id=$1`,
+    [u.id, await hashPassword(next), encryptJSON({ p: next })],
+  )
+  res.json({ ok: true })
 }))
 
 app.get('/api/me/usage', auth, wrap(async (req, res) => {
@@ -500,6 +549,47 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (_req, res) => {
     usage_by_channel: usage.map((r) => ({ channel: r.channel, n: r.n })),
     arpu: totals.paid ? Number((Number(totals.mrr) / totals.paid).toFixed(1)) : 0,
   })
+}))
+
+/* ---------- ADMIN: platform settings ---------- */
+const SETTINGS_PLAIN = ['support_whatsapp', 'support_email', 'currency']
+const SETTINGS_SECRET = ['meta_app_id', 'openai_key', 'twilio_sid', 'elevenlabs_key']
+
+app.get('/api/admin/settings', auth, adminOnly, wrap(async (_req, res) => {
+  const rows = await many(`select key, value from sts_settings`)
+  const map = {}
+  rows.forEach((r) => (map[r.key] = r.value))
+  const out = {}
+  for (const k of SETTINGS_PLAIN) out[k] = map[k] || ''
+  for (const k of SETTINGS_SECRET) {
+    let plain = ''
+    try { plain = map[k] ? decryptJSON(map[k])?.v || '' : '' } catch { plain = '' }
+    out[k] = plain ? maskValue(plain) : '' // never send the real secret to the browser
+  }
+  res.json(out)
+}))
+
+app.put('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
+  const body = req.body || {}
+  const existing = {}
+  ;(await many(`select key, value from sts_settings`)).forEach((r) => (existing[r.key] = r.value))
+  const upsert = async (key, value) =>
+    pool.query(
+      `insert into sts_settings (key, value, updated_at) values ($1,$2, now())
+       on conflict (key) do update set value=excluded.value, updated_at=now()`,
+      [key, value],
+    )
+  for (const k of SETTINGS_PLAIN) {
+    if (body[k] !== undefined) await upsert(k, String(body[k]))
+  }
+  for (const k of SETTINGS_SECRET) {
+    const v = body[k]
+    if (v === undefined) continue
+    if (String(v).includes('••')) continue // masked placeholder → keep stored
+    if (String(v).trim() === '') continue // blank → keep stored
+    await upsert(k, encryptJSON({ v: String(v).trim() }))
+  }
+  res.json({ ok: true })
 }))
 
 /* ---------- channel connection credentials ---------- */
