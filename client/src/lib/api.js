@@ -38,6 +38,32 @@ export async function apiGet(path, { auth = true } = {}) {
   return res.json()
 }
 
+export async function apiPut(path, body) {
+  const res = await fetch(API + path, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Request failed')
+  return data
+}
+
+export async function apiDelete(path) {
+  const res = await fetch(API + path, { method: 'DELETE', headers: authHeaders() })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Request failed')
+  return data
+}
+
+export async function apiPatch(path, body) {
+  const res = await fetch(API + path, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify(body) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Request failed')
+  return data
+}
+
+/** POST authed (Bearer) — convenience for dashboard actions. */
+export function apiPostAuth(path, body) {
+  return apiPost(path, body, { auth: true })
+}
+
 /* ---- auth helpers (localStorage, matching the original keys) ---- */
 export function saveSession({ token, user }) {
   if (token) localStorage.setItem('sts_token', token)

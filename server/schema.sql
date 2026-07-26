@@ -1,13 +1,17 @@
 -- ============================================================
--- STS — Supabase schema  (run in Supabase SQL Editor)
+-- STS — PostgreSQL schema (Supabase)
+-- All tables are prefixed `sts_` so they never collide with any
+-- other project sharing this database. Idempotent: safe to re-run.
+-- The backend connects as the `postgres` role (bypasses RLS); RLS is
+-- enabled so the public anon/PostgREST key cannot read these tables.
 -- ============================================================
 create extension if not exists "pgcrypto";
 
--- ---------- plans (seeded from the pricing sheet) ----------
-create table if not exists plans (
+-- ---------- plans ----------
+create table if not exists sts_plans (
   code        text primary key,
   name        text not null,
-  category    text not null,             -- whatsapp | instagram | voice | bundle
+  category    text not null,                 -- whatsapp | instagram | voice | bundle | free
   quota_label text,
   price_kwd   numeric(8,2) not null,
   channels    text[] not null default '{}',  -- {wa,ig,vc}
@@ -15,7 +19,7 @@ create table if not exists plans (
   sort        int default 0
 );
 
-insert into plans (code,name,category,quota_label,price_kwd,channels,sort) values
+insert into sts_plans (code,name,category,quota_label,price_kwd,channels,sort) values
  ('wa_starter','WhatsApp Starter','whatsapp','2,500 msgs/mo',20.00,'{wa}',1),
  ('wa_growth','WhatsApp Growth','whatsapp','5,000 msgs/mo',25.00,'{wa}',2),
  ('wa_pro','WhatsApp Pro','whatsapp','10,000 msgs/mo',34.90,'{wa}',3),
@@ -35,12 +39,12 @@ insert into plans (code,name,category,quota_label,price_kwd,channels,sort) value
 on conflict (code) do nothing;
 
 -- ---------- businesses (tenants) ----------
-create table if not exists businesses (
+create table if not exists sts_businesses (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   whatsapp    text,
-  plan_code   text references plans(code) default 'free',
-  status      text not null default 'free',        -- paid | free | suspended
+  plan_code   text references sts_plans(code) default 'free',
+  status      text not null default 'free',         -- paid | free | suspended
   mrr         numeric(8,2) default 0,
   channels    text[] default '{wa}',
   widget_key  text unique default ('biz_' || substr(md5(random()::text),1,10)),
@@ -48,20 +52,20 @@ create table if not exists businesses (
 );
 
 -- ---------- users (admin + client logins) ----------
-create table if not exists users (
+create table if not exists sts_users (
   id            uuid primary key default gen_random_uuid(),
   email         text unique not null,
   name          text,
-  role          text not null default 'client',   -- admin | client
-  business_id   uuid references businesses(id) on delete cascade,
+  role          text not null default 'client',      -- admin | client
+  business_id   uuid references sts_businesses(id) on delete cascade,
   password_hash text not null,
   last_login    timestamptz,
   created_at    timestamptz default now()
 );
-create index if not exists idx_users_business on users(business_id);
+create index if not exists idx_sts_users_business on sts_users(business_id);
 
 -- ---------- access requests (landing page form) ----------
-create table if not exists access_requests (
+create table if not exists sts_access_requests (
   id              uuid primary key default gen_random_uuid(),
   business_name   text not null,
   contact_name    text,
@@ -69,87 +73,90 @@ create table if not exists access_requests (
   whatsapp        text,
   interested_plan text,
   message         text,
-  status          text default 'new',              -- new | approved | rejected
+  status          text default 'new',                 -- new | approved | rejected
   created_at      timestamptz default now()
 );
 
--- ---------- channel configs (Meta / Twilio credentials per business) ----------
-create table if not exists channel_configs (
-  id                    uuid primary key default gen_random_uuid(),
-  business_id           uuid references businesses(id) on delete cascade,
-  channel               text not null,             -- whatsapp | instagram | voice
-  meta_phone_number_id  text,                      -- WhatsApp Cloud API
-  meta_waba_id          text,
-  ig_account_id         text,                      -- Instagram business account
-  page_access_token     text,
-  twilio_number         text,
-  voice_provider        text default 'standard',   -- standard | elevenlabs
+-- ---------- channel connection credentials (Meta / Twilio per business) ----------
+-- Secret tokens are AES-256-GCM encrypted by the app layer and stored in
+-- `secrets_enc`. `ext_ref` is a NON-secret routing key (phone number id /
+-- ig account id / twilio number) so inbound webhooks can find the business.
+create table if not exists sts_channel_configs (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references sts_businesses(id) on delete cascade,
+  channel     text not null,                          -- whatsapp | instagram | voice
+  connected   boolean default false,
+  ext_ref     text,
+  secrets_enc text,
+  updated_at  timestamptz default now(),
   unique(business_id, channel)
 );
-create index if not exists idx_cfg_phone on channel_configs(meta_phone_number_id);
-create index if not exists idx_cfg_ig on channel_configs(ig_account_id);
+create index if not exists idx_sts_cfg_ext on sts_channel_configs(channel, ext_ref);
 
--- ---------- bot settings ----------
-create table if not exists bot_settings (
-  id            uuid primary key default gen_random_uuid(),
-  business_id   uuid references businesses(id) on delete cascade,
-  channel       text not null,                     -- whatsapp | instagram | voice | web
-  auto_reply    boolean default true,
-  human_handoff boolean default true,
+-- ---------- bot settings (per business + channel) ----------
+create table if not exists sts_bot_settings (
+  id              uuid primary key default gen_random_uuid(),
+  business_id     uuid references sts_businesses(id) on delete cascade,
+  channel         text not null,                      -- whatsapp | instagram | voice | web
+  auto_reply      boolean default true,
+  human_handoff   boolean default true,
   after_hours_only boolean default false,
-  greeting      text,
-  tone          text default 'friendly',
-  language      text default 'auto',               -- auto | ar | en
-  widget_color  text default '#0FBE8F',
+  greeting        text,
+  tone            text default 'friendly',
+  language        text default 'auto',                -- auto | ar | en
+  widget_color    text default '#0FBE8F',
   widget_position text default 'bottom_right',
-  updated_at    timestamptz default now(),
+  updated_at      timestamptz default now(),
   unique(business_id, channel)
 );
 
 -- ---------- knowledge base ----------
-create table if not exists knowledge_sources (
+create table if not exists sts_knowledge_sources (
   id          uuid primary key default gen_random_uuid(),
-  business_id uuid references businesses(id) on delete cascade,
-  type        text not null,                       -- file | url | qa
+  business_id uuid references sts_businesses(id) on delete cascade,
+  type        text not null,                          -- file | url | qa
   title       text not null,
   content     text,
   source_url  text,
-  status      text default 'processing',           -- processing | trained | failed
+  meta        text,
+  status      text default 'processing',              -- processing | trained | failed
   created_at  timestamptz default now()
 );
-create index if not exists idx_kb_business on knowledge_sources(business_id);
+create index if not exists idx_sts_kb_business on sts_knowledge_sources(business_id);
 
 -- ---------- conversations & messages ----------
-create table if not exists conversations (
+create table if not exists sts_conversations (
   id                    uuid primary key default gen_random_uuid(),
-  business_id           uuid references businesses(id) on delete cascade,
-  channel               text not null,             -- whatsapp | instagram | voice | web
-  customer_handle       text not null,             -- phone / ig id / visitor id
+  business_id           uuid references sts_businesses(id) on delete cascade,
+  channel               text not null,                -- whatsapp | instagram | voice | web
+  customer_handle       text not null,
   customer_name         text,
-  mode                  text default 'ai',         -- ai | human
+  customer_since        text,
+  orders                int default 0,
+  mode                  text default 'ai',            -- ai | human
   unread                int default 0,
   last_message_preview  text,
   last_message_at       timestamptz default now(),
   created_at            timestamptz default now(),
   unique(business_id, channel, customer_handle)
 );
-create index if not exists idx_conv_business on conversations(business_id, last_message_at desc);
+create index if not exists idx_sts_conv_business on sts_conversations(business_id, last_message_at desc);
 
-create table if not exists messages (
+create table if not exists sts_messages (
   id              uuid primary key default gen_random_uuid(),
-  conversation_id uuid references conversations(id) on delete cascade,
-  business_id     uuid references businesses(id) on delete cascade,
-  direction       text not null,                   -- in | out
-  sender          text not null,                   -- customer | ai | human
+  conversation_id uuid references sts_conversations(id) on delete cascade,
+  business_id     uuid references sts_businesses(id) on delete cascade,
+  direction       text not null,                      -- in | out
+  sender          text not null,                      -- customer | ai | human
   body            text,
   created_at      timestamptz default now()
 );
-create index if not exists idx_msg_conv on messages(conversation_id, created_at);
+create index if not exists idx_sts_msg_conv on sts_messages(conversation_id, created_at);
 
 -- ---------- voice call logs ----------
-create table if not exists call_logs (
+create table if not exists sts_call_logs (
   id           uuid primary key default gen_random_uuid(),
-  business_id  uuid references businesses(id) on delete cascade,
+  business_id  uuid references sts_businesses(id) on delete cascade,
   caller       text,
   direction    text default 'inbound',
   duration_sec int default 0,
@@ -159,69 +166,83 @@ create table if not exists call_logs (
 );
 
 -- ---------- leads ----------
-create table if not exists leads (
+create table if not exists sts_leads (
   id          uuid primary key default gen_random_uuid(),
-  business_id uuid references businesses(id) on delete cascade,
+  business_id uuid references sts_businesses(id) on delete cascade,
   name        text,
   contact     text,
   channel     text,
+  status      text default 'new',                     -- new | warm | won
   note        text,
   created_at  timestamptz default now()
 );
+create index if not exists idx_sts_leads_business on sts_leads(business_id);
 
 -- ---------- billing ----------
-create table if not exists invoices (
+create table if not exists sts_invoices (
   id          uuid primary key default gen_random_uuid(),
-  business_id uuid references businesses(id) on delete cascade,
+  business_id uuid references sts_businesses(id) on delete cascade,
   number      text unique not null,
   description text,
   amount_kwd  numeric(8,2) not null,
-  status      text default 'unpaid',               -- unpaid | paid | overdue | void
+  status      text default 'unpaid',                  -- unpaid | paid | overdue | void
   issued_at   timestamptz default now(),
   due_at      timestamptz
 );
+create index if not exists idx_sts_inv_business on sts_invoices(business_id);
 
-create table if not exists payments (
+create table if not exists sts_payments (
   id          uuid primary key default gen_random_uuid(),
-  business_id uuid references businesses(id) on delete cascade,
-  invoice_id  uuid references invoices(id),
+  business_id uuid references sts_businesses(id) on delete cascade,
+  invoice_id  uuid references sts_invoices(id),
   reference   text unique not null,
-  method      text,                                -- knet | card | transfer | link
+  method      text,                                   -- knet | card | transfer | link
   amount_kwd  numeric(8,2) not null,
-  status      text default 'pending',              -- pending | paid | failed | refunded
+  status      text default 'pending',                 -- pending | paid | failed | refunded
   created_at  timestamptz default now()
 );
 
 -- ---------- usage counters (quota tracking per month) ----------
-create table if not exists usage_counters (
+create table if not exists sts_usage_counters (
   id          uuid primary key default gen_random_uuid(),
-  business_id uuid references businesses(id) on delete cascade,
-  period      text not null,                       -- 'YYYY-MM'
-  metric      text not null,                       -- wa_messages | ig_contacts | voice_minutes | web_messages
+  business_id uuid references sts_businesses(id) on delete cascade,
+  period      text not null,                          -- 'YYYY-MM'
+  metric      text not null,                          -- wa_messages | ig_contacts | voice_minutes | web_messages
   used        int default 0,
   quota       int default 0,
   unique(business_id, period, metric)
 );
 
--- ============================================================
--- Row Level Security: the API uses the service_role key, so RLS
--- mainly guards against accidental anon access. Enable + lock down:
--- ============================================================
-alter table businesses enable row level security;
-alter table users enable row level security;
-alter table conversations enable row level security;
-alter table messages enable row level security;
-alter table knowledge_sources enable row level security;
-alter table invoices enable row level security;
-alter table payments enable row level security;
-alter table channel_configs enable row level security;
-alter table bot_settings enable row level security;
-alter table call_logs enable row level security;
-alter table leads enable row level security;
-alter table usage_counters enable row level security;
-alter table access_requests enable row level security;
--- (no anon policies created on purpose — only the server's service key can read/write)
+-- ---------- platform settings (admin) ----------
+create table if not exists sts_settings (
+  key         text primary key,
+  value       text,
+  updated_at  timestamptz default now()
+);
+insert into sts_settings (key,value) values
+ ('support_whatsapp','+965 0000 0000'),
+ ('support_email','sts@shgardiauto.com'),
+ ('currency','KWD')
+on conflict (key) do nothing;
 
--- plans stay publicly readable for the landing page
-alter table plans enable row level security;
-create policy "plans are public" on plans for select using (true);
+-- ============================================================
+-- Row Level Security — enable on every sts_ table. The backend uses the
+-- postgres role (bypassrls=true) so it is unaffected; the public anon key
+-- is blocked. Plans stay publicly readable for the landing page.
+-- ============================================================
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'sts_businesses','sts_users','sts_access_requests','sts_channel_configs',
+    'sts_bot_settings','sts_knowledge_sources','sts_conversations','sts_messages',
+    'sts_call_logs','sts_leads','sts_invoices','sts_payments','sts_usage_counters',
+    'sts_settings'
+  ] loop
+    execute format('alter table %I enable row level security', t);
+  end loop;
+end $$;
+
+alter table sts_plans enable row level security;
+drop policy if exists "sts_plans_public_read" on sts_plans;
+create policy "sts_plans_public_read" on sts_plans for select using (true);

@@ -1,560 +1,487 @@
-/**
- * STS — SaaS Backend (server/server.js)
- * ------------------------------------------------------------------
- * Stack: Node 18+, Express, Supabase (Postgres), JWT, bcrypt
- *
- * Setup:
- *   npm init -y
- *   npm i express cors bcryptjs jsonwebtoken @supabase/supabase-js dotenv
- *   node server.js
- *
- * .env:
- *   SUPABASE_URL=https://xxxx.supabase.co
- *   SUPABASE_SERVICE_KEY=eyJ...        (service_role key — server only, never in browser)
- *   JWT_SECRET=change-this-long-random-string
- *   PORT=4000
- *   OPENAI_API_KEY=sk-...              (optional — powers AI replies)
- *   META_VERIFY_TOKEN=sts-verify-123   (WhatsApp/IG webhook verification)
- *   META_WA_TOKEN=EAAG...              (Meta Cloud API access token)
- *
- * Run the SQL in supabase/schema.sql first to create the tables.
- * ------------------------------------------------------------------
- */
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { createClient } = require('@supabase/supabase-js');
+import 'dotenv/config'
+import express from 'express'
+import cors from 'cors'
+import { pool, one, many, tx } from './db.js'
+import { comparePassword, hashPassword, signToken, auth, adminOnly } from './lib/auth.js'
+import { encryptJSON, decryptJSON, maskCredentials } from './lib/crypto.js'
+import { CONNECTION_SPEC, CHANNELS, isConnected } from './lib/channels.js'
+import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+const app = express()
+app.use(express.json({ limit: '1mb' }))
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
-const PORT = process.env.PORT || 4000;
+const origins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+app.use(
+  cors({
+    origin(origin, cb) {
+      // allow same-origin / curl (no origin) and any configured localhost origin
+      if (!origin || origins.includes(origin) || /^http:\/\/localhost:\d+$/.test(origin)) return cb(null, true)
+      cb(null, true) // permissive in dev; tighten for production
+    },
+    credentials: true,
+  }),
+)
+
+const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
+  console.error(req.method, req.path, '→', e.message)
+  res.status(500).json({ error: 'Server error' })
+})
+const biz = (req) => req.user.business_id
+const period = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
 
 /* ================================================================
- * Helpers & middleware
+ * HEALTH
  * ============================================================== */
-const sign = (user) =>
-  jwt.sign({ id: user.id, role: user.role, business_id: user.business_id }, JWT_SECRET, { expiresIn: '7d' });
-
-function auth(req, res, next) {
-  const h = req.headers.authorization || '';
-  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
-  if (!token) return res.status(401).json({ error: 'Missing token' });
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
-}
-const adminOnly = (req, res, next) =>
-  req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Admin access required' });
-
-const fail = (res, error, code = 500) => res.status(code).json({ error: error.message || String(error) });
+app.get('/api/health', wrap(async (_req, res) => {
+  const r = await one('select now() as t')
+  res.json({ ok: true, service: 'sts-api', db_time: r.t })
+}))
 
 /* ================================================================
  * AUTH
  * ============================================================== */
+app.post('/api/auth/login', wrap(async (req, res) => {
+  const { email, password } = req.body || {}
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
 
-// POST /api/auth/login  { email, password }
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const { data: user, error } = await supabase
-      .from('users').select('*, businesses(name, plan_code, status)')
-      .eq('email', String(email).toLowerCase()).single();
-    if (error || !user) return res.status(401).json({ error: 'Invalid credentials' });
-    if (!(await bcrypt.compare(password, user.password_hash)))
-      return res.status(401).json({ error: 'Invalid credentials' });
-    if (user.businesses && user.businesses.status === 'suspended')
-      return res.status(403).json({ error: 'Account suspended — contact STS support' });
+  const user = await one(
+    `select u.*, b.name as business_name, b.plan_code, b.status as business_status
+       from sts_users u left join sts_businesses b on b.id = u.business_id
+      where u.email = $1`,
+    [String(email).toLowerCase()],
+  )
+  if (!user) return res.status(401).json({ error: 'Invalid credentials' })
+  if (!(await comparePassword(password, user.password_hash)))
+    return res.status(401).json({ error: 'Invalid credentials' })
+  if (user.business_status === 'suspended')
+    return res.status(403).json({ error: 'Account suspended — contact STS support' })
 
-    await supabase.from('users').update({ last_login: new Date().toISOString() }).eq('id', user.id);
-    res.json({
-      token: sign(user),
-      user: {
-        id: user.id, email: user.email, role: user.role, name: user.name,
-        business_id: user.business_id,
-        business_name: user.businesses ? user.businesses.name : null,
-        plan: user.businesses ? user.businesses.plan_code : null,
-      },
-    });
-  } catch (e) { fail(res, e); }
-});
+  await pool.query('update sts_users set last_login = now() where id = $1', [user.id])
+  res.json({
+    token: signToken(user),
+    user: {
+      id: user.id, email: user.email, name: user.name, role: user.role,
+      business_id: user.business_id, business_name: user.business_name, plan: user.plan_code,
+    },
+  })
+}))
 
-// GET /api/auth/me
-app.get('/api/auth/me', auth, async (req, res) => {
-  const { data } = await supabase.from('users')
-    .select('id, email, name, role, business_id, businesses(name, plan_code, status)')
-    .eq('id', req.user.id).single();
-  res.json(data);
-});
+app.get('/api/auth/me', auth, wrap(async (req, res) => {
+  res.json({
+    id: req.user.id, email: req.user.email, name: req.user.name, role: req.user.role,
+    business_id: req.user.business_id, business_name: req.user.business_name, plan: req.user.plan_code,
+  })
+}))
 
 /* ================================================================
- * PUBLIC — access requests (landing form) + plans
+ * PUBLIC — access requests + plans
  * ============================================================== */
+app.post('/api/requests', wrap(async (req, res) => {
+  const { business_name, contact_name, email, whatsapp, interested_plan, message } = req.body || {}
+  if (!business_name || !email) return res.status(400).json({ error: 'business_name and email are required' })
+  const row = await one(
+    `insert into sts_access_requests (business_name, contact_name, email, whatsapp, interested_plan, message)
+     values ($1,$2,$3,$4,$5,$6) returning id`,
+    [business_name, contact_name || null, email, whatsapp || null, interested_plan || null, message || null],
+  )
+  res.status(201).json({ ok: true, id: row.id })
+}))
 
-// POST /api/requests — from index.html "Request Access" form
-app.post('/api/requests', async (req, res) => {
-  try {
-    const { business_name, contact_name, email, whatsapp, interested_plan, message } = req.body;
-    if (!business_name || !email) return res.status(400).json({ error: 'business_name and email are required' });
-    const { data, error } = await supabase.from('access_requests')
-      .insert({ business_name, contact_name, email, whatsapp, interested_plan, message })
-      .select().single();
-    if (error) throw error;
-    res.status(201).json(data);
-  } catch (e) { fail(res, e); }
-});
-
-// GET /api/plans — public pricing (used by landing + admin)
-app.get('/api/plans', async (_req, res) => {
-  const { data, error } = await supabase.from('plans').select('*').eq('active', true).order('sort');
-  if (error) return fail(res, error);
-  res.json(data);
-});
+app.get('/api/plans', wrap(async (_req, res) => {
+  const rows = await many('select * from sts_plans where active order by sort')
+  res.json(rows)
+}))
 
 /* ================================================================
- * CLIENT — dashboard endpoints (scoped to the caller's business)
+ * CLIENT — scoped to the caller's business
  * ============================================================== */
-const biz = (req) => req.user.business_id;
+app.get('/api/me/summary', auth, wrap(async (req, res) => {
+  const b = biz(req)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const [convToday, msgs, leads] = await Promise.all([
+    one(`select count(*)::int n from sts_conversations where business_id=$1 and last_message_at >= $2`, [b, today.toISOString()]),
+    many(`select sender from sts_messages where business_id=$1`, [b]),
+    one(`select count(*)::int n from sts_leads where business_id=$1`, [b]),
+  ])
+  const ai = msgs.length ? Math.round((msgs.filter((m) => m.sender === 'ai').length / msgs.length) * 100) : 0
 
-// Summary cards for Overview
-app.get('/api/me/summary', auth, async (req, res) => {
-  try {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const [{ count: convToday }, { data: msgs }, { count: leads }] = await Promise.all([
-      supabase.from('conversations').select('id', { count: 'exact', head: true })
-        .eq('business_id', biz(req)).gte('last_message_at', today.toISOString()),
-      supabase.from('conversations').select('mode').eq('business_id', biz(req)),
-      supabase.from('leads').select('id', { count: 'exact', head: true })
-        .eq('business_id', biz(req)).gte('created_at', today.toISOString()),
-    ]);
-    const ai = msgs && msgs.length ? Math.round((msgs.filter(m => m.mode === 'ai').length / msgs.length) * 100) : 0;
-    res.json({ conversations_today: convToday || 0, ai_resolved: ai, leads: leads || 0 });
-  } catch (e) { fail(res, e); }
-});
+  // real chart data
+  const byChannel = await many(
+    `select channel, count(*)::int n from sts_conversations where business_id=$1 group by channel`, [b],
+  )
+  const week = await many(
+    `select to_char(created_at,'Dy') d, count(*)::int n
+       from sts_messages where business_id=$1 and created_at > now() - interval '7 days'
+      group by 1`, [b],
+  )
+  res.json({
+    conversations_today: convToday.n,
+    ai_resolved: ai,
+    leads: leads.n,
+    by_channel: byChannel,
+    week,
+  })
+}))
 
-// Conversations list (inbox)
-app.get('/api/conversations', auth, async (req, res) => {
-  try {
-    const q = supabase.from('conversations')
-      .select('id, channel, customer_name, customer_handle, mode, unread, last_message_preview, last_message_at')
-      .eq('business_id', biz(req)).order('last_message_at', { ascending: false }).limit(100);
-    if (req.query.channel) q.eq('channel', req.query.channel);
-    const { data, error } = await q;
-    if (error) throw error;
-    // shape for the client inbox
-    res.json(data.map(c => ({
-      id: c.id, ch: c.channel, name: c.customer_name || c.customer_handle,
-      prev: c.last_message_preview, time: c.last_message_at, unread: c.unread,
-      mode: c.mode, phone: c.customer_handle, since: '', orders: 0, msgs: [],
-    })));
-  } catch (e) { fail(res, e); }
-});
+app.get('/api/me/usage', auth, wrap(async (req, res) => {
+  const rows = await many(
+    `select metric, used, quota from sts_usage_counters where business_id=$1 and period=$2`,
+    [biz(req), period()],
+  )
+  const map = {}
+  rows.forEach((r) => (map[r.metric] = { used: r.used, quota: r.quota }))
+  res.json(map)
+}))
 
-// Messages of one conversation
-app.get('/api/conversations/:id/messages', auth, async (req, res) => {
-  const { data: conv } = await supabase.from('conversations').select('business_id').eq('id', req.params.id).single();
-  if (!conv || conv.business_id !== biz(req)) return res.status(404).json({ error: 'Not found' });
-  const { data, error } = await supabase.from('messages')
-    .select('*').eq('conversation_id', req.params.id).order('created_at');
-  if (error) return fail(res, error);
-  res.json(data);
-});
+app.get('/api/me/invoices', auth, wrap(async (req, res) => {
+  const rows = await many(
+    `select number, description, amount_kwd, status, coalesce(due_at, issued_at) d
+       from sts_invoices where business_id=$1 order by coalesce(due_at, issued_at) desc`,
+    [biz(req)],
+  )
+  res.json(rows.map((r) => ({ no: r.number, desc: r.description, amt: kwd(r.amount_kwd), date: dmy(r.d), status: r.status })))
+}))
 
-// Human agent sends a reply (also relays to WhatsApp when configured)
-app.post('/api/conversations/:id/messages', auth, async (req, res) => {
-  try {
-    const { data: conv } = await supabase.from('conversations')
-      .select('id, business_id, channel, customer_handle').eq('id', req.params.id).single();
-    if (!conv || conv.business_id !== biz(req)) return res.status(404).json({ error: 'Not found' });
+app.get('/api/me/leads', auth, wrap(async (req, res) => {
+  const rows = await many(`select name, contact, channel, status, note from sts_leads where business_id=$1 order by created_at desc`, [biz(req)])
+  res.json(rows)
+}))
 
-    const { data: msg, error } = await supabase.from('messages').insert({
-      conversation_id: conv.id, business_id: conv.business_id,
-      direction: 'out', sender: req.body.sender || 'human', body: req.body.body,
-    }).select().single();
-    if (error) throw error;
+app.get('/api/me/calls', auth, wrap(async (req, res) => {
+  const rows = await many(`select caller, direction, duration_sec, summary from sts_call_logs where business_id=$1 order by created_at desc limit 20`, [biz(req)])
+  res.json(rows)
+}))
 
-    await supabase.from('conversations').update({
-      last_message_preview: req.body.body, last_message_at: new Date().toISOString(),
-    }).eq('id', conv.id);
+// Inbox
+app.get('/api/conversations', auth, wrap(async (req, res) => {
+  const params = [biz(req)]
+  let sql = `select * from sts_conversations where business_id=$1`
+  if (req.query.channel) { params.push(req.query.channel); sql += ` and channel=$2` }
+  sql += ` order by last_message_at desc limit 100`
+  const rows = await many(sql, params)
+  res.json(rows.map(conversationShape))
+}))
 
-    // Relay to WhatsApp via Meta Cloud API
-    if (conv.channel === 'whatsapp' && process.env.META_WA_TOKEN) {
-      const { data: cfg } = await supabase.from('channel_configs')
-        .select('meta_phone_number_id').eq('business_id', conv.business_id).eq('channel', 'whatsapp').single();
-      if (cfg && cfg.meta_phone_number_id) {
-        fetch(`https://graph.facebook.com/v19.0/${cfg.meta_phone_number_id}/messages`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.META_WA_TOKEN}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messaging_product: 'whatsapp', to: conv.customer_handle, text: { body: req.body.body } }),
-        }).catch(() => {});
-      }
-    }
-    res.status(201).json(msg);
-  } catch (e) { fail(res, e); }
-});
+app.get('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
+  const conv = await one(`select id, business_id, customer_name from sts_conversations where id=$1`, [req.params.id])
+  if (!conv || conv.business_id !== biz(req)) return res.status(404).json({ error: 'Not found' })
+  const rows = await many(`select direction, sender, body, created_at from sts_messages where conversation_id=$1 order by created_at`, [req.params.id])
+  // mark read
+  await pool.query(`update sts_conversations set unread=0 where id=$1`, [req.params.id])
+  res.json(rows.map((r) => messageShape(r, conv.customer_name)))
+}))
 
-// Toggle AI / human mode on a conversation
-app.patch('/api/conversations/:id', auth, async (req, res) => {
-  const { data, error } = await supabase.from('conversations')
-    .update({ mode: req.body.mode, unread: req.body.unread })
-    .eq('id', req.params.id).eq('business_id', biz(req)).select().single();
-  if (error) return fail(res, error);
-  res.json(data);
-});
+app.post('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
+  const conv = await one(`select id, business_id from sts_conversations where id=$1`, [req.params.id])
+  if (!conv || conv.business_id !== biz(req)) return res.status(404).json({ error: 'Not found' })
+  const body = String(req.body?.body || '').trim()
+  if (!body) return res.status(400).json({ error: 'Empty message' })
+  await tx(async (c) => {
+    await c.query(`insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out',$3,$4)`,
+      [conv.id, conv.business_id, req.body?.sender || 'human', body])
+    await c.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, body])
+  })
+  res.json({ ok: true })
+}))
 
-// Bot settings (per channel: whatsapp | instagram | voice | web)
-app.get('/api/bots/:channel', auth, async (req, res) => {
-  const { data } = await supabase.from('bot_settings')
-    .select('*').eq('business_id', biz(req)).eq('channel', req.params.channel).single();
-  res.json(data || {});
-});
-app.put('/api/bots/:channel', auth, async (req, res) => {
-  const payload = { ...req.body, business_id: biz(req), channel: req.params.channel, updated_at: new Date().toISOString() };
-  const { data, error } = await supabase.from('bot_settings')
-    .upsert(payload, { onConflict: 'business_id,channel' }).select().single();
-  if (error) return fail(res, error);
-  res.json(data);
-});
+app.patch('/api/conversations/:id', auth, wrap(async (req, res) => {
+  const conv = await one(`select id, business_id from sts_conversations where id=$1`, [req.params.id])
+  if (!conv || conv.business_id !== biz(req)) return res.status(404).json({ error: 'Not found' })
+  const sets = [], params = [req.params.id]
+  if (req.body.mode) { params.push(req.body.mode); sets.push(`mode=$${params.length}`) }
+  if (req.body.unread != null) { params.push(req.body.unread); sets.push(`unread=$${params.length}`) }
+  if (sets.length) await pool.query(`update sts_conversations set ${sets.join(', ')} where id=$1`, params)
+  res.json({ ok: true })
+}))
+
+// Bot settings
+app.get('/api/bots/:channel', auth, wrap(async (req, res) => {
+  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [biz(req), req.params.channel])
+  res.json(row || { channel: req.params.channel, auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto' })
+}))
+
+app.put('/api/bots/:channel', auth, wrap(async (req, res) => {
+  const b = req.body || {}
+  const row = await one(
+    `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+     on conflict (business_id, channel) do update set
+       auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
+       greeting=excluded.greeting, tone=excluded.tone, language=excluded.language,
+       widget_color=excluded.widget_color, widget_position=excluded.widget_position, updated_at=now()
+     returning *`,
+    [biz(req), req.params.channel, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false,
+     b.greeting || '', b.tone || 'friendly', b.language || 'auto', b.widget_color || '#0FBE8F', b.widget_position || 'bottom_right'],
+  )
+  res.json(row)
+}))
 
 // Knowledge base
-app.get('/api/knowledge', auth, async (req, res) => {
-  const { data, error } = await supabase.from('knowledge_sources')
-    .select('*').eq('business_id', biz(req)).order('created_at', { ascending: false });
-  if (error) return fail(res, error);
-  res.json(data);
-});
-app.post('/api/knowledge', auth, async (req, res) => {
-  const { data, error } = await supabase.from('knowledge_sources').insert({
-    business_id: biz(req), type: req.body.type, title: req.body.title,
-    content: req.body.content, source_url: req.body.source_url, status: 'trained',
-  }).select().single();
-  if (error) return fail(res, error);
-  res.status(201).json(data);
-});
-app.delete('/api/knowledge/:id', auth, async (req, res) => {
-  await supabase.from('knowledge_sources').delete().eq('id', req.params.id).eq('business_id', biz(req));
-  res.json({ ok: true });
-});
+app.get('/api/knowledge', auth, wrap(async (req, res) => {
+  const rows = await many(`select id, type, title, meta, source_url, status, created_at from sts_knowledge_sources where business_id=$1 order by created_at desc`, [biz(req)])
+  res.json(rows)
+}))
 
-// Invoices (client view)
-app.get('/api/me/invoices', auth, async (req, res) => {
-  const { data, error } = await supabase.from('invoices')
-    .select('*').eq('business_id', biz(req)).order('issued_at', { ascending: false });
-  if (error) return fail(res, error);
-  res.json(data);
-});
+app.post('/api/knowledge', auth, wrap(async (req, res) => {
+  const { type, title, content, source_url, meta } = req.body || {}
+  if (!title) return res.status(400).json({ error: 'title required' })
+  const row = await one(
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, status)
+     values ($1,$2,$3,$4,$5,$6,'trained') returning id, type, title, meta, source_url, status, created_at`,
+    [biz(req), type || 'qa', title, content || null, source_url || null, meta || null],
+  )
+  res.status(201).json(row)
+}))
 
-// Usage
-app.get('/api/me/usage', auth, async (req, res) => {
-  const { data, error } = await supabase.from('usage_counters')
-    .select('*').eq('business_id', biz(req)).eq('period', new Date().toISOString().slice(0, 7));
-  if (error) return fail(res, error);
-  res.json(data);
-});
+app.delete('/api/knowledge/:id', auth, wrap(async (req, res) => {
+  await pool.query(`delete from sts_knowledge_sources where id=$1 and business_id=$2`, [req.params.id, biz(req)])
+  res.json({ ok: true })
+}))
+
+// Client-visible connection status (read-only, masked)
+app.get('/api/me/connections', auth, wrap(async (req, res) => {
+  res.json(await connectionsFor(biz(req)))
+}))
 
 /* ================================================================
  * ADMIN
  * ============================================================== */
-
-// Access requests
-app.get('/api/admin/requests', auth, adminOnly, async (_req, res) => {
-  const { data, error } = await supabase.from('access_requests')
-    .select('*').eq('status', 'new').order('created_at', { ascending: false });
-  if (error) return fail(res, error);
-  res.json(data);
-});
-app.post('/api/admin/requests/:id/approve', auth, adminOnly, async (req, res) => {
-  const { data, error } = await supabase.from('access_requests')
-    .update({ status: 'approved' }).eq('id', req.params.id).select().single();
-  if (error) return fail(res, error);
-  res.json(data);
-});
-app.post('/api/admin/requests/:id/reject', auth, adminOnly, async (req, res) => {
-  const { data, error } = await supabase.from('access_requests')
-    .update({ status: 'rejected' }).eq('id', req.params.id).select().single();
-  if (error) return fail(res, error);
-  res.json(data);
-});
-
-// Businesses / users
-app.get('/api/admin/businesses', auth, adminOnly, async (_req, res) => {
-  const { data, error } = await supabase.from('businesses')
-    .select('id, name, plan_code, status, mrr, channels, created_at, users(email)')
-    .order('created_at', { ascending: false });
-  if (error) return fail(res, error);
-  res.json(data.map(b => ({
-    id: b.id, biz: b.name, email: b.users && b.users[0] ? b.users[0].email : '',
-    plan: b.plan_code, mrr: b.mrr, ch: b.channels || [], status: b.status,
-  })));
-});
-
-// Create business + owner login (the admin onboarding flow)
-app.post('/api/admin/businesses', auth, adminOnly, async (req, res) => {
-  try {
-    const { business_name, owner_name, email, whatsapp, plan_code, password } = req.body;
-    const { data: plan } = await supabase.from('plans').select('price_kwd, channels').eq('code', plan_code).single();
-
-    const { data: business, error: e1 } = await supabase.from('businesses').insert({
-      name: business_name, whatsapp, plan_code,
-      status: plan_code === 'free' ? 'free' : 'paid',
-      mrr: plan ? plan.price_kwd : 0, channels: plan ? plan.channels : ['wa'],
-    }).select().single();
-    if (e1) throw e1;
-
-    const { data: user, error: e2 } = await supabase.from('users').insert({
-      email: String(email).toLowerCase(), name: owner_name, role: 'client',
-      business_id: business.id, password_hash: await bcrypt.hash(password, 10),
-    }).select().single();
-    if (e2) throw e2;
-
-    // default bot settings per channel
-    const channels = (plan ? plan.channels : ['wa']).map(c => ({ wa: 'whatsapp', ig: 'instagram', vc: 'voice' }[c] || c));
-    await supabase.from('bot_settings').insert(channels.concat('web').map(channel => ({
-      business_id: business.id, channel, auto_reply: true, human_handoff: true,
-      greeting: `Welcome to ${business_name}! How can I help you today?`, tone: 'friendly',
-    })));
-
-    res.status(201).json({ business, user: { id: user.id, email: user.email } });
-  } catch (e) { fail(res, e); }
-});
-
-// Update a business (suspend / activate / change plan)
-app.patch('/api/admin/businesses/:id', auth, adminOnly, async (req, res) => {
-  const allowed = (({ status, plan_code, mrr, name, whatsapp }) => ({ status, plan_code, mrr, name, whatsapp }))(req.body);
-  Object.keys(allowed).forEach(k => allowed[k] === undefined && delete allowed[k]);
-  const { data, error } = await supabase.from('businesses')
-    .update(allowed).eq('id', req.params.id).select().single();
-  if (error) return fail(res, error);
-  res.json(data);
-});
-
-// Payments & invoices
-app.get('/api/admin/payments', auth, adminOnly, async (_req, res) => {
-  const { data, error } = await supabase.from('payments')
-    .select('reference, amount_kwd, method, status, created_at, businesses(name)')
-    .order('created_at', { ascending: false }).limit(200);
-  if (error) return fail(res, error);
-  res.json(data.map(p => ({
-    ref: p.reference, biz: p.businesses ? p.businesses.name : '', meth: p.method,
-    amt: Number(p.amount_kwd).toFixed(2), date: new Date(p.created_at).toDateString(), st: p.status,
-  })));
-});
-app.post('/api/admin/payments', auth, adminOnly, async (req, res) => {
-  const { data, error } = await supabase.from('payments').insert(req.body).select().single();
-  if (error) return fail(res, error);
-  res.status(201).json(data);
-});
-app.get('/api/admin/invoices', auth, adminOnly, async (_req, res) => {
-  const { data, error } = await supabase.from('invoices')
-    .select('number, description, amount_kwd, due_at, status, businesses(name)')
-    .order('issued_at', { ascending: false }).limit(200);
-  if (error) return fail(res, error);
-  res.json(data.map(i => ({
-    no: i.number, biz: i.businesses ? i.businesses.name : '', desc: i.description,
-    amt: Number(i.amount_kwd).toFixed(2), due: new Date(i.due_at).toDateString(), st: i.status,
-  })));
-});
-app.post('/api/admin/invoices', auth, adminOnly, async (req, res) => {
-  const { data, error } = await supabase.from('invoices').insert(req.body).select().single();
-  if (error) return fail(res, error);
-  res.status(201).json(data);
-});
-
-// Platform analytics
-app.get('/api/admin/analytics', auth, adminOnly, async (_req, res) => {
-  const [{ data: bizs }, { count: msgCount }] = await Promise.all([
-    supabase.from('businesses').select('status, mrr'),
-    supabase.from('messages').select('id', { count: 'exact', head: true }),
-  ]);
-  const paid = bizs.filter(b => b.status === 'paid');
+app.get('/api/admin/summary', auth, adminOnly, wrap(async (_req, res) => {
+  const [mrr, paid, free, overdue] = await Promise.all([
+    one(`select coalesce(sum(mrr),0)::numeric mrr from sts_businesses where status='paid'`),
+    one(`select count(*)::int n from sts_businesses where status='paid'`),
+    one(`select count(*)::int n from sts_businesses where status in ('free','suspended')`),
+    one(`select count(*)::int n, coalesce(sum(amount_kwd),0)::numeric amt from sts_invoices where status='overdue'`),
+  ])
   res.json({
-    mrr: paid.reduce((s, b) => s + Number(b.mrr || 0), 0),
-    paid_count: paid.length,
-    free_count: bizs.filter(b => b.status === 'free').length,
-    total_messages: msgCount || 0,
-  });
-});
+    mrr: Number(mrr.mrr),
+    paid: paid.n,
+    free: free.n,
+    overdue: overdue.n,
+    overdue_amount: Number(overdue.amt),
+  })
+}))
 
-/* ================================================================
- * AI ENGINE — shared brain for all channels
- * ============================================================== */
-async function aiReply(business_id, channel, userText) {
-  if (!process.env.OPENAI_API_KEY) return null;
-  const [{ data: kb }, { data: cfg }, { data: business }] = await Promise.all([
-    supabase.from('knowledge_sources').select('title, content').eq('business_id', business_id).eq('status', 'trained').limit(20),
-    supabase.from('bot_settings').select('*').eq('business_id', business_id).eq('channel', channel).single(),
-    supabase.from('businesses').select('name').eq('id', business_id).single(),
-  ]);
-  if (cfg && cfg.auto_reply === false) return null;
+app.get('/api/admin/requests', auth, adminOnly, wrap(async (_req, res) => {
+  const rows = await many(`select * from sts_access_requests where status='new' order by created_at desc`)
+  res.json(rows.map((r) => ({
+    id: r.id, business_name: r.business_name, contact_name: r.contact_name, email: r.email,
+    whatsapp: r.whatsapp, interested_plan: r.interested_plan, message: r.message, created: relTime(r.created_at) + ' ago',
+  })))
+}))
 
-  const knowledge = (kb || []).map(k => `## ${k.title}\n${k.content || ''}`).join('\n\n').slice(0, 12000);
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content:
-          `You are the ${cfg?.tone || 'friendly'} AI assistant for "${business?.name}". ` +
-          `Answer in the customer's language (Arabic or English). Keep replies short and helpful. ` +
-          `Answer ONLY from this business knowledge; if unsure, say a team member will follow up.\n\n${knowledge}` },
-        { role: 'user', content: userText },
-      ],
-      max_tokens: 300,
-    }),
-  });
-  const j = await r.json();
-  return j.choices && j.choices[0] ? j.choices[0].message.content : null;
+app.post('/api/admin/requests/:id/approve', auth, adminOnly, wrap(async (req, res) => {
+  const reqRow = await one(`select * from sts_access_requests where id=$1`, [req.params.id])
+  if (!reqRow) return res.status(404).json({ error: 'Not found' })
+  const created = await tx(async (c) => {
+    const b = (await c.query(
+      `insert into sts_businesses (name, whatsapp, plan_code, status) values ($1,$2,'free','free') returning id`,
+      [reqRow.business_name, reqRow.whatsapp],
+    )).rows[0]
+    const tempPw = await hashPassword('Sts@2026!')
+    await c.query(
+      `insert into sts_users (email, name, role, business_id, password_hash)
+       values ($1,$2,'client',$3,$4) on conflict (email) do update set business_id=excluded.business_id`,
+      [reqRow.email.toLowerCase(), reqRow.contact_name || reqRow.business_name, b.id, tempPw],
+    )
+    await c.query(`update sts_access_requests set status='approved' where id=$1`, [req.params.id])
+    return b
+  })
+  res.json({ ok: true, business_id: created.id })
+}))
+
+app.post('/api/admin/requests/:id/reject', auth, adminOnly, wrap(async (req, res) => {
+  await pool.query(`update sts_access_requests set status='rejected' where id=$1`, [req.params.id])
+  res.json({ ok: true })
+}))
+
+const chToShort = (channels) => (channels || []) // ['wa','ig','vc'] already
+
+app.get('/api/admin/businesses', auth, adminOnly, wrap(async (_req, res) => {
+  const rows = await many(
+    `select b.id, b.name, b.plan_code, b.mrr, b.status, b.channels,
+            p.name as plan_name,
+            (select email from sts_users u where u.business_id=b.id and u.role='client' order by created_at limit 1) as email
+       from sts_businesses b left join sts_plans p on p.code=b.plan_code
+      order by b.created_at`,
+  )
+  res.json(rows.map((r) => ({
+    id: r.id, biz: r.name, email: r.email || '—', plan: r.plan_name || r.plan_code,
+    mrr: Number(r.mrr), ch: chToShort(r.channels), status: r.status,
+  })))
+}))
+
+app.post('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
+  const { business_name, owner_name, email, whatsapp, plan_code, password } = req.body || {}
+  if (!business_name || !email) return res.status(400).json({ error: 'business_name and email required' })
+  const plan = await one(`select * from sts_plans where code=$1`, [plan_code || 'free'])
+  const status = plan_code === 'free' || !plan ? 'free' : 'paid'
+  const created = await tx(async (c) => {
+    const b = (await c.query(
+      `insert into sts_businesses (name, whatsapp, plan_code, status, mrr, channels)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [business_name, whatsapp || null, plan?.code || 'free', status, plan?.price_kwd || 0, plan?.channels || ['wa']],
+    )).rows[0]
+    const hash = await hashPassword(password || 'Sts@2026!')
+    await c.query(
+      `insert into sts_users (email, name, role, business_id, password_hash) values ($1,$2,'client',$3,$4)
+       on conflict (email) do update set business_id=excluded.business_id, password_hash=excluded.password_hash`,
+      [email.toLowerCase(), owner_name || business_name, b.id, hash],
+    )
+    return b
+  })
+  res.status(201).json({ ok: true, id: created.id })
+}))
+
+app.patch('/api/admin/businesses/:id', auth, adminOnly, wrap(async (req, res) => {
+  const sets = [], params = [req.params.id]
+  for (const f of ['status', 'plan_code', 'mrr', 'name']) {
+    if (req.body[f] != null) { params.push(req.body[f]); sets.push(`${f}=$${params.length}`) }
+  }
+  if (sets.length) await pool.query(`update sts_businesses set ${sets.join(', ')} where id=$1`, params)
+  res.json({ ok: true })
+}))
+
+app.get('/api/admin/payments', auth, adminOnly, wrap(async (_req, res) => {
+  const rows = await many(
+    `select p.reference, p.method, p.amount_kwd, p.status, p.created_at, b.name as biz
+       from sts_payments p left join sts_businesses b on b.id=p.business_id order by p.created_at desc`,
+  )
+  res.json(rows.map((r) => ({
+    ref: r.reference, biz: r.biz, meth: methodLabel(r.method), amt: kwd(r.amount_kwd), date: dmy(r.created_at), st: r.status,
+  })))
+}))
+
+app.post('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
+  const { business_id, reference, method, amount, status } = req.body || {}
+  const row = await one(
+    `insert into sts_payments (business_id, reference, method, amount_kwd, status) values ($1,$2,$3,$4,$5) returning id`,
+    [business_id, reference, method || 'knet', amount || 0, status || 'paid'],
+  )
+  res.status(201).json({ ok: true, id: row.id })
+}))
+
+app.get('/api/admin/invoices', auth, adminOnly, wrap(async (_req, res) => {
+  const rows = await many(
+    `select i.number, i.description, i.amount_kwd, i.status, coalesce(i.due_at,i.issued_at) d, b.name as biz
+       from sts_invoices i left join sts_businesses b on b.id=i.business_id order by coalesce(i.due_at,i.issued_at) desc`,
+  )
+  res.json(rows.map((r) => ({
+    no: r.number, biz: r.biz, desc: r.description, amt: kwd(r.amount_kwd), due: dmy(r.d), st: r.status,
+  })))
+}))
+
+app.post('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {
+  const { business_id, number, description, amount, due_at } = req.body || {}
+  const row = await one(
+    `insert into sts_invoices (business_id, number, description, amount_kwd, status, due_at)
+     values ($1,$2,$3,$4,'unpaid',$5) returning id`,
+    [business_id, number, description || '', amount || 0, due_at || null],
+  )
+  res.status(201).json({ ok: true, id: row.id })
+}))
+
+app.get('/api/admin/plans', auth, adminOnly, wrap(async (_req, res) => {
+  const rows = await many(
+    `select p.*, (select count(*)::int from sts_businesses b where b.plan_code=p.code) subs
+       from sts_plans p order by p.sort`,
+  )
+  res.json(rows.map((p) => ({
+    name: p.name, cat: catLabel(p.category), quota: p.quota_label, price: Number(p.price_kwd).toFixed(2), subs: p.subs,
+  })))
+}))
+
+app.get('/api/admin/analytics', auth, adminOnly, wrap(async (_req, res) => {
+  const [byPlan, top, daily] = await Promise.all([
+    many(`select p.category, coalesce(sum(b.mrr),0)::numeric mrr from sts_businesses b join sts_plans p on p.code=b.plan_code group by p.category`),
+    many(
+      `select b.name, b.mrr,
+              (select count(*)::int from sts_messages m where m.business_id=b.id) msgs,
+              coalesce((select sum(duration_sec)/60 from sts_call_logs c where c.business_id=b.id),0)::int voice_min
+         from sts_businesses b order by b.mrr desc limit 6`,
+    ),
+    many(`select to_char(created_at,'Mon DD') d, count(*)::int n from sts_messages where created_at > now() - interval '14 days' group by 1 order by min(created_at)`),
+  ])
+  res.json({
+    by_plan: byPlan.map((r) => ({ category: r.category, mrr: Number(r.mrr) })),
+    top_businesses: top.map((r) => ({ biz: r.name, mrr: kwd(r.mrr), msgs: r.msgs, voice_min: r.voice_min })),
+    messages_daily: daily,
+  })
+}))
+
+/* ---------- ADMIN: channel connection credentials ---------- */
+app.get('/api/admin/connection-spec', auth, adminOnly, wrap(async (_req, res) => {
+  res.json(CONNECTION_SPEC)
+}))
+
+app.get('/api/admin/businesses/:id/connections', auth, adminOnly, wrap(async (req, res) => {
+  res.json(await connectionsFor(req.params.id))
+}))
+
+app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(async (req, res) => {
+  const { id, channel } = req.params
+  if (!CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' })
+  const bizRow = await one(`select id from sts_businesses where id=$1`, [id])
+  if (!bizRow) return res.status(404).json({ error: 'Business not found' })
+
+  // merge: keep existing secret values when the incoming value is blank or a mask
+  const existing = await one(`select secrets_enc from sts_channel_configs where business_id=$1 and channel=$2`, [id, channel])
+  const current = existing ? decryptJSON(existing.secrets_enc) : {}
+  const incoming = req.body?.fields || {}
+  const merged = { ...current }
+  for (const f of CONNECTION_SPEC[channel].fields) {
+    const v = incoming[f.key]
+    if (v === undefined) continue
+    if (String(v).includes('••')) continue // masked placeholder → keep existing
+    if (String(v).trim() === '' && f.secret) continue // don't wipe a secret with blank
+    merged[f.key] = v
+  }
+  const connected = isConnected(channel, merged)
+  const extRef = merged[CONNECTION_SPEC[channel].extRef] || null
+
+  await pool.query(
+    `insert into sts_channel_configs (business_id, channel, connected, ext_ref, secrets_enc, updated_at)
+     values ($1,$2,$3,$4,$5, now())
+     on conflict (business_id, channel) do update set
+       connected=excluded.connected, ext_ref=excluded.ext_ref, secrets_enc=excluded.secrets_enc, updated_at=now()`,
+    [id, channel, connected, extRef, encryptJSON(merged)],
+  )
+  res.json({ ok: true, connected })
+}))
+
+/** Build masked connection status for all channels of a business. */
+async function connectionsFor(businessId) {
+  const rows = await many(`select channel, connected, secrets_enc, updated_at from sts_channel_configs where business_id=$1`, [businessId])
+  const byCh = {}
+  rows.forEach((r) => (byCh[r.channel] = r))
+  return CHANNELS.map((channel) => {
+    const row = byCh[channel]
+    const creds = row ? decryptJSON(row.secrets_enc) : {}
+    return {
+      channel,
+      connected: row?.connected || false,
+      fields: maskCredentials(creds),
+      updated_at: row?.updated_at || null,
+    }
+  })
 }
 
-async function ingestInbound({ business_id, channel, handle, name, text }) {
-  // find or create conversation
-  let { data: conv } = await supabase.from('conversations')
-    .select('*').eq('business_id', business_id).eq('channel', channel).eq('customer_handle', handle).single();
-  if (!conv) {
-    ({ data: conv } = await supabase.from('conversations').insert({
-      business_id, channel, customer_handle: handle, customer_name: name, mode: 'ai',
-    }).select().single());
-  }
-  await supabase.from('messages').insert({
-    conversation_id: conv.id, business_id, direction: 'in', sender: 'customer', body: text,
-  });
-  await supabase.from('conversations').update({
-    last_message_preview: text, last_message_at: new Date().toISOString(), unread: (conv.unread || 0) + 1,
-  }).eq('id', conv.id);
-
-  // AI auto-reply if conversation is in AI mode
-  if (conv.mode === 'ai') {
-    const reply = await aiReply(business_id, channel, text);
-    if (reply) {
-      await supabase.from('messages').insert({
-        conversation_id: conv.id, business_id, direction: 'out', sender: 'ai', body: reply,
-      });
-      await supabase.from('conversations').update({
-        last_message_preview: reply, last_message_at: new Date().toISOString(),
-      }).eq('id', conv.id);
-      return { conv, reply };
-    }
-  }
-  return { conv, reply: null };
+/* ---------- label helpers ---------- */
+function methodLabel(m) {
+  return { knet: 'KNET', card: 'Credit Card', transfer: 'Bank Transfer', link: 'Payment Link' }[m] || m
+}
+function catLabel(c) {
+  return { whatsapp: 'WhatsApp', instagram: 'Instagram', voice: 'Voice', bundle: 'Bundle', free: 'Free' }[c] || c
 }
 
 /* ================================================================
- * WEBHOOKS — Meta (WhatsApp + Instagram share one app) & widget
+ * START
  * ============================================================== */
-
-// Meta webhook verification (same endpoint serves WhatsApp & Instagram)
-app.get('/api/webhooks/meta', (req, res) => {
-  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === process.env.META_VERIFY_TOKEN)
-    return res.send(req.query['hub.challenge']);
-  res.sendStatus(403);
-});
-
-// Meta webhook events
-app.post('/api/webhooks/meta', async (req, res) => {
-  res.sendStatus(200); // ack fast, process async
-  try {
-    const entry = req.body.entry && req.body.entry[0];
-    if (!entry) return;
-
-    // ---- WhatsApp Cloud API payload
-    const waChange = entry.changes && entry.changes.find(c => c.field === 'messages');
-    if (waChange && waChange.value.messages) {
-      const v = waChange.value;
-      const phoneNumberId = v.metadata.phone_number_id;
-      const { data: cfg } = await supabase.from('channel_configs')
-        .select('business_id').eq('channel', 'whatsapp').eq('meta_phone_number_id', phoneNumberId).single();
-      if (!cfg) return;
-      for (const m of v.messages) {
-        if (m.type !== 'text') continue;
-        const contact = (v.contacts || [])[0];
-        const { reply } = await ingestInbound({
-          business_id: cfg.business_id, channel: 'whatsapp',
-          handle: m.from, name: contact ? contact.profile.name : m.from, text: m.text.body,
-        });
-        if (reply && process.env.META_WA_TOKEN) {
-          fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${process.env.META_WA_TOKEN}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messaging_product: 'whatsapp', to: m.from, text: { body: reply } }),
-          }).catch(() => {});
-        }
-      }
-    }
-
-    // ---- Instagram Messaging payload
-    if (entry.messaging) {
-      for (const ev of entry.messaging) {
-        if (!ev.message || ev.message.is_echo) continue;
-        const igId = ev.recipient.id; // the business IG account id
-        const { data: cfg } = await supabase.from('channel_configs')
-          .select('business_id, page_access_token').eq('channel', 'instagram').eq('ig_account_id', igId).single();
-        if (!cfg) continue;
-        const { reply } = await ingestInbound({
-          business_id: cfg.business_id, channel: 'instagram',
-          handle: ev.sender.id, name: 'Instagram user', text: ev.message.text || '',
-        });
-        if (reply && cfg.page_access_token) {
-          fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${cfg.page_access_token}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipient: { id: ev.sender.id }, message: { text: reply } }),
-          }).catch(() => {});
-        }
-      }
-    }
-  } catch (e) { console.error('meta webhook error', e); }
-});
-
-// Website widget — public chat endpoint keyed by the business's widget key
-app.post('/api/widget/:widgetKey/message', async (req, res) => {
-  try {
-    const { data: business } = await supabase.from('businesses')
-      .select('id, status').eq('widget_key', req.params.widgetKey).single();
-    if (!business || business.status === 'suspended') return res.status(404).json({ error: 'Widget not found' });
-    const { reply } = await ingestInbound({
-      business_id: business.id, channel: 'web',
-      handle: req.body.visitor_id || `web_${Date.now()}`,
-      name: 'Website visitor', text: req.body.text || '',
-    });
-    res.json({ reply: reply || 'A team member will reply shortly.' });
-  } catch (e) { fail(res, e); }
-});
-
-// Voice webhook (Twilio) — logs calls + transcripts
-app.post('/api/webhooks/voice', async (req, res) => {
-  try {
-    const { business_id, from, transcript, duration_sec, direction } = req.body;
-    await supabase.from('call_logs').insert({ business_id, caller: from, transcript, duration_sec, direction });
-    await ingestInbound({ business_id, channel: 'voice', handle: from, name: from, text: `[Call transcript] ${transcript || ''}` });
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-
-/* ================================================================
- * BOOTSTRAP — first run creates the top-level admin
- * ============================================================== */
-async function bootstrap() {
-  const { count } = await supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'admin');
-  if (!count) {
-    await supabase.from('users').insert({
-      email: 'admin@sts.app', name: 'STS Admin', role: 'admin',
-      password_hash: await bcrypt.hash('Admin@2026!', 10),
-    });
-    console.log('✔ Seeded admin: admin@sts.app / Admin@2026!  (change immediately)');
-  }
-}
-
-app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'sts-api', time: new Date().toISOString() }));
-
-app.listen(PORT, async () => {
-  await bootstrap().catch(e => console.error('bootstrap:', e.message));
-  console.log(`STS API running on http://localhost:${PORT}`);
-});
+const PORT = process.env.PORT || 4000
+app.listen(PORT, () => console.log(`STS API on http://localhost:${PORT}`))

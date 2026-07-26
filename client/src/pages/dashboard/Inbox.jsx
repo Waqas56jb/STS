@@ -2,23 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { Avatar } from '../../components/Avatar'
 import { useLang } from '../../i18n/LangContext'
-import { API } from '../../lib/api'
-import { chIcon, demoConvs } from '../../data/demo'
+import { apiGet, apiPatch, apiPostAuth } from '../../lib/api'
+import { chIcon } from '../../data/demo'
 
 /**
- * Inbox view — a faithful React port of the original vanilla inbox
- * (conversation list + thread + customer panel), including channel
- * filters, search, AI/Human mode toggle and the human-reply composer.
+ * Inbox — real data. Loads conversations from the API, fetches each
+ * thread's messages on open, and posts human replies / mode changes back.
  */
 export function Inbox() {
   const { t, lang, isAr } = useLang()
-  const [convs, setConvs] = useState(demoConvs)
-  const [activeId, setActiveId] = useState(demoConvs[0].id)
+  const [convs, setConvs] = useState([])
+  const [activeId, setActiveId] = useState(null)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState('')
-  // On phones the inbox is a single pane; opening a conversation slides to
-  // the thread, the back button returns to the list.
+  const [loading, setLoading] = useState(true)
   const [mobileThread, setMobileThread] = useState(false)
   const msgRef = useRef(null)
 
@@ -26,42 +24,62 @@ export function Inbox() {
 
   const list = useMemo(() => {
     const q = search.toLowerCase()
-    return convs.filter((c) => (filter === 'all' || c.ch === filter) && c.name.toLowerCase().includes(q))
+    return convs.filter((c) => (filter === 'all' || c.ch === filter) && (c.name || '').toLowerCase().includes(q))
   }, [convs, filter, search])
 
-  // Keep the newest message in view, like the original scrollTop tweak.
+  // Load conversation list once.
+  useEffect(() => {
+    let alive = true
+    apiGet('/conversations')
+      .then((rows) => {
+        if (!alive) return
+        setConvs(rows)
+        if (rows.length) openConv(rows[0].id, rows)
+      })
+      .catch(() => {})
+      .finally(() => alive && setLoading(false))
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     if (msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight
-  }, [activeId, active?.msgs.length])
+  }, [activeId, active?.msgs?.length])
 
-  function openConv(id) {
-    setConvs((cs) => cs.map((c) => (c.id === id ? { ...c, unread: 0 } : c)))
+  async function openConv(id, source = convs) {
     setActiveId(id)
     setMobileThread(true)
+    const conv = source.find((c) => c.id === id)
+    // fetch messages if not loaded yet
+    if (conv && !conv.msgs) {
+      try {
+        const msgs = await apiGet(`/conversations/${id}/messages`)
+        setConvs((cs) => cs.map((c) => (c.id === id ? { ...c, msgs, unread: 0 } : c)))
+      } catch {
+        setConvs((cs) => cs.map((c) => (c.id === id ? { ...c, msgs: [], unread: 0 } : c)))
+      }
+    } else {
+      setConvs((cs) => cs.map((c) => (c.id === id ? { ...c, unread: 0 } : c)))
+    }
   }
 
   function setMode(id, m) {
     setConvs((cs) => cs.map((c) => (c.id === id ? { ...c, mode: m } : c)))
+    apiPatch(`/conversations/${id}`, { mode: m }).catch(() => {})
   }
 
   function sendMsg() {
     const text = draft.trim()
-    if (!text) return
+    if (!text || !activeId) return
     setConvs((cs) =>
       cs.map((c) =>
         c.id === activeId
-          ? { ...c, prev: text, msgs: [...c.msgs, { d: 'out', who: isAr ? 'أنت' : 'You', t: text }] }
+          ? { ...c, prev: text, msgs: [...(c.msgs || []), { d: 'out', who: isAr ? 'أنت' : 'You', t: text }] }
           : c,
       ),
     )
     setDraft('')
-    // Best-effort relay to the API (ignored when offline), as in the original.
-    const token = localStorage.getItem('sts_token')
-    fetch(`${API}/conversations/${activeId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ body: text, sender: 'human' }),
-    }).catch(() => {})
+    apiPostAuth(`/conversations/${activeId}/messages`, { body: text, sender: 'human' }).catch(() => {})
   }
 
   const filters = [
@@ -71,6 +89,8 @@ export function Inbox() {
     { f: 'voice', label: t('f_calls') },
     { f: 'web', label: t('f_web') },
   ]
+
+  const ci = (ch) => chIcon[ch] || chIcon.web
 
   return (
     <div className={`inbox ${mobileThread ? 'show-thread' : ''}`}>
@@ -89,8 +109,8 @@ export function Inbox() {
         <div>
           {list.map((c) => (
             <div key={c.id} className={`conv ${c.id === activeId ? 'on' : ''}`} onClick={() => openConv(c.id)}>
-              <span className={`ch ${chIcon[c.ch][0]}`}>
-                <Icon name={chIcon[c.ch][1]} />
+              <span className={`ch ${ci(c.ch)[0]}`}>
+                <Icon name={ci(c.ch)[1]} />
               </span>
               <div className="info">
                 <b>{c.name}</b>
@@ -107,6 +127,11 @@ export function Inbox() {
               </div>
             </div>
           ))}
+          {!loading && list.length === 0 && (
+            <div style={{ padding: 30, textAlign: 'center', color: 'var(--mut)', fontSize: 13 }}>
+              {isAr ? 'لا توجد محادثات بعد' : 'No conversations yet'}
+            </div>
+          )}
         </div>
       </div>
 
@@ -118,8 +143,8 @@ export function Inbox() {
               <button className="back" onClick={() => setMobileThread(false)} aria-label="Back to conversations">
                 <Icon name="arrow-left" size={18} />
               </button>
-              <span className={`ch ${chIcon[active.ch][0]}`}>
-                <Icon name={chIcon[active.ch][1]} />
+              <span className={`ch ${ci(active.ch)[0]}`}>
+                <Icon name={ci(active.ch)[1]} />
               </span>
               <div>
                 <b style={{ fontSize: 14 }}>{active.name}</b>
@@ -137,7 +162,7 @@ export function Inbox() {
           )}
         </div>
         <div className="msgs" ref={msgRef}>
-          {active?.msgs.map((m, i) => (
+          {(active?.msgs || []).map((m, i) => (
             <div key={i} className={`bub ${m.d}`}>
               <span className="who">{m.who}</span>
               {m.t}

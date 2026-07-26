@@ -42,7 +42,7 @@ const TITLES = {
   billing: 'n_bill', settings: 'n_set',
 }
 
-function ViewRouter({ view, summary }) {
+function ViewRouter({ view, summary, usage }) {
   switch (view) {
     case 'inbox': return <Inbox />
     case 'whatsapp': return <WhatsAppView />
@@ -53,7 +53,7 @@ function ViewRouter({ view, summary }) {
     case 'analytics': return <AnalyticsView />
     case 'billing': return <BillingView />
     case 'settings': return <SettingsView />
-    default: return <Overview summary={summary} />
+    default: return <Overview summary={summary} usage={usage} />
   }
 }
 
@@ -62,13 +62,13 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [view, setView] = useState('overview')
   const [sideOpen, setSideOpen] = useState(false)
-  const [summary, setSummary] = useState({ conv: 128, ai: 86, leads: 23 })
+  const [summary, setSummary] = useState({ conv: 0, ai: 0, leads: 0, by_channel: [], week: [] })
+  const [usage, setUsage] = useState({})
 
   const user = getUser()
-  const bizName = user.business_name ? `${user.business_name} · ${user.plan || ''}` : 'Al Noor Perfumes · Complete Growth'
+  const bizName = user.business_name ? `${user.business_name} · ${user.plan || ''}` : ''
 
-  // Boot: try the live summary API, silently keep demo numbers if offline —
-  // exactly the original try-API-then-demo behaviour.
+  // Boot: load real summary + usage from the API.
   useEffect(() => {
     const token = localStorage.getItem('sts_token')
     if (!token) return
@@ -76,12 +76,18 @@ export default function Dashboard() {
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
         if (!s) return
-        setSummary((prev) => ({
-          conv: s.conversations_today ?? prev.conv,
-          ai: s.ai_resolved ?? prev.ai,
-          leads: s.leads ?? prev.leads,
-        }))
+        setSummary({
+          conv: s.conversations_today ?? 0,
+          ai: s.ai_resolved ?? 0,
+          leads: s.leads ?? 0,
+          by_channel: s.by_channel || [],
+          week: s.week || [],
+        })
       })
+      .catch(() => {})
+    fetch(API + '/me/usage', { headers: { Authorization: 'Bearer ' + token } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => u && setUsage(u))
       .catch(() => {})
   }, [])
 
@@ -136,7 +142,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <ViewRouter view={view} summary={summary} />
+          <ViewRouter view={view} summary={summary} usage={usage} />
         </main>
       </div>
     </div>

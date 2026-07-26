@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { useLang } from '../i18n/LangContext'
 import { useAdminT } from '../i18n/admin'
-import { API, apiGet, clearSession } from '../lib/api'
+import { apiGet, apiPostAuth, apiPatch, clearSession } from '../lib/api'
 import { ToastProvider, useToast } from './ui'
-import { demoRequests, demoUsers, planOptions } from '../data/adminDemo'
+import { planOptions } from '../data/adminDemo'
 import {
   Overview, Requests, Users, Payments, Invoices, Plans, Analytics, Settings,
 } from './admin/Views'
+import { ConnectionModal } from './admin/ConnectionModal'
 
 const LOGO = import.meta.env.BASE_URL + 'logo.png'
 
@@ -35,28 +36,25 @@ function AdminInner({ onLogout }) {
 
   const [view, setView] = useState('overview')
   const [sideOpen, setSideOpen] = useState(false)
-  const [requests, setRequests] = useState(demoRequests)
-  const [users, setUsers] = useState(demoUsers)
+  const [requests, setRequests] = useState([])
+  const [users, setUsers] = useState([])
+  const [summary, setSummary] = useState({ mrr: 0, paid: 0, free: 0, overdue: 0, overdue_amount: 0 })
   const [modalOpen, setModalOpen] = useState(false)
+  const [connBiz, setConnBiz] = useState(null) // business whose connections modal is open
   const formRef = useRef(null)
 
-  // Boot: try the live admin API, fall back to demo (matches admin.html).
-  useEffect(() => {
-    const token = localStorage.getItem('sts_token')
-    if (!token) return
-    ;(async () => {
-      try {
-        const [rq, ru] = await Promise.all([
-          apiGet('/admin/requests').catch(() => null),
-          apiGet('/admin/businesses').catch(() => null),
-        ])
-        if (Array.isArray(rq) && rq.length) setRequests(rq)
-        if (Array.isArray(ru) && ru.length) setUsers(ru)
-      } catch {
-        /* demo mode */
-      }
-    })()
-  }, [])
+  // Load all admin data from the live API.
+  async function reload() {
+    const [rq, ru, sm] = await Promise.all([
+      apiGet('/admin/requests').catch(() => []),
+      apiGet('/admin/businesses').catch(() => []),
+      apiGet('/admin/summary').catch(() => null),
+    ])
+    setRequests(Array.isArray(rq) ? rq : [])
+    setUsers(Array.isArray(ru) ? ru : [])
+    if (sm) setSummary(sm)
+  }
+  useEffect(() => { reload() }, [])
 
   const done = () => toast(isAr ? 'تم ✓' : 'Done ✓')
 
@@ -69,75 +67,47 @@ function AdminInner({ onLogout }) {
     setModalOpen(true)
   }
 
-  function approveReq(id) {
+  async function approveReq(id) {
     const r = requests.find((x) => x.id === id)
     setModalOpen(true)
-    // Prefill the add-business form on the next tick, once the modal exists.
     requestAnimationFrame(() => {
       const f = formRef.current
       if (f && r) {
         f.business_name.value = r.business_name
-        f.owner_name.value = r.contact_name
+        f.owner_name.value = r.contact_name || ''
         f.email.value = r.email
-        f.whatsapp.value = r.whatsapp
+        f.whatsapp.value = r.whatsapp || ''
       }
     })
-    const token = localStorage.getItem('sts_token')
-    fetch(`${API}/admin/requests/${id}/approve`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } }).catch(() => {})
-    setRequests((rs) => rs.filter((x) => x.id !== id))
+    await apiPostAuth(`/admin/requests/${id}/approve`, {}).catch(() => {})
+    await reload()
   }
 
-  function rejectReq(id) {
-    const token = localStorage.getItem('sts_token')
-    fetch(`${API}/admin/requests/${id}/reject`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } }).catch(() => {})
-    setRequests((rs) => rs.filter((x) => x.id !== id))
+  async function rejectReq(id) {
+    await apiPostAuth(`/admin/requests/${id}/reject`, {}).catch(() => {})
+    await reload()
     done()
   }
 
-  function toggleSuspend(id) {
-    setUsers((us) =>
-      us.map((u) => {
-        if (u.id !== id) return u
-        const status = u.status === 'suspended' ? 'paid' : 'suspended'
-        const token = localStorage.getItem('sts_token')
-        fetch(`${API}/admin/businesses/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({ status }),
-        }).catch(() => {})
-        return { ...u, status }
-      }),
-    )
+  async function toggleSuspend(id) {
+    const u = users.find((x) => x.id === id)
+    if (!u) return
+    const status = u.status === 'suspended' ? 'paid' : 'suspended'
+    setUsers((us) => us.map((x) => (x.id === id ? { ...x, status } : x)))
+    await apiPatch(`/admin/businesses/${id}`, { status }).catch(() => {})
+    await reload()
     done()
   }
 
-  function createBiz(e) {
+  async function createBiz(e) {
     e.preventDefault()
     const f = e.target
     const data = Object.fromEntries(new FormData(f))
-    const token = localStorage.getItem('sts_token')
-    fetch(API + '/admin/businesses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify(data),
-    }).catch(() => {})
-
-    const label = f.plan_code.selectedOptions[0].text
-    setUsers((us) => [
-      {
-        id: Date.now(),
-        biz: data.business_name,
-        email: data.email,
-        plan: label.split(' — ')[0],
-        mrr: parseFloat(label.split('— ')[1]) || 0,
-        ch: ['wa'],
-        status: data.plan_code === 'free' ? 'free' : 'paid',
-      },
-      ...us,
-    ])
+    await apiPostAuth('/admin/businesses', data).catch(() => {})
     setModalOpen(false)
-    done()
     f.reset()
+    await reload()
+    done()
   }
 
   function logout() {
@@ -150,13 +120,13 @@ function AdminInner({ onLogout }) {
   function renderView() {
     switch (view) {
       case 'requests': return <Requests requests={requests} onApprove={approveReq} onReject={rejectReq} />
-      case 'users': return <Users users={users} onToggle={toggleSuspend} />
+      case 'users': return <Users users={users} onToggle={toggleSuspend} onConnections={setConnBiz} />
       case 'payments': return <Payments />
       case 'invoices': return <Invoices />
       case 'plans': return <Plans />
       case 'analytics': return <Analytics />
       case 'settings': return <Settings />
-      default: return <Overview />
+      default: return <Overview summary={summary} />
     }
   }
 
@@ -222,6 +192,9 @@ function AdminInner({ onLogout }) {
           </form>
         </div>
       </div>
+
+      {/* CHANNEL CONNECTIONS MODAL */}
+      {connBiz && <ConnectionModal business={connBiz} onClose={() => setConnBiz(null)} />}
     </div>
   )
 }

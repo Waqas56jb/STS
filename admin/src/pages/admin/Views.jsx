@@ -1,26 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { Avatar } from '../../components/Avatar'
 import { useAdminT } from '../../i18n/admin'
-import { WHATSAPP } from '../../lib/api'
-import {
-  demoInvs, demoPays, demoPlans, chIco, planLbl, stBadge,
-} from '../../data/adminDemo'
+import { WHATSAPP, apiGet } from '../../lib/api'
+import { chIco, planLbl, stBadge } from '../../data/adminDemo'
 import { useToast } from '../ui'
 import {
   RevenueChart, GrowthChart, PlanChart, MessagesChart, ArpuChart, UsageChart,
 } from './Charts'
 
+const nfmt = (n) => Number(n || 0).toLocaleString('en')
+
 /* ===================== OVERVIEW ===================== */
-export function Overview() {
+export function Overview({ summary = {} }) {
   const { t } = useAdminT()
   return (
     <>
       <div className="grid g4" style={{ marginBottom: 18 }}>
-        <div className="card stat"><div className="lbl"><span>{t('k_mrr')}</span><Icon name="banknote" /></div><div className="val">2,847 <small style={{ fontSize: 14 }}>KWD</small></div><div className="trend">▲ 18% {t('vs_lm')}</div></div>
-        <div className="card stat"><div className="lbl"><span>{t('k_paid')}</span><Icon name="crown" /></div><div className="val">31</div><div className="trend">▲ 4 {t('this_mo')}</div></div>
-        <div className="card stat"><div className="lbl"><span>{t('k_free')}</span><Icon name="user" /></div><div className="val">12</div><div className="trend">{t('k_conv')}</div></div>
-        <div className="card stat"><div className="lbl"><span>{t('k_due')}</span><Icon name="alert-triangle" /></div><div className="val">2</div><div className="trend bad">193 KWD {t('pending')}</div></div>
+        <div className="card stat"><div className="lbl"><span>{t('k_mrr')}</span><Icon name="banknote" /></div><div className="val">{nfmt(summary.mrr)} <small style={{ fontSize: 14 }}>KWD</small></div><div className="trend">{t('vs_lm')}</div></div>
+        <div className="card stat"><div className="lbl"><span>{t('k_paid')}</span><Icon name="crown" /></div><div className="val">{summary.paid ?? 0}</div><div className="trend">{t('this_mo')}</div></div>
+        <div className="card stat"><div className="lbl"><span>{t('k_free')}</span><Icon name="user" /></div><div className="val">{summary.free ?? 0}</div><div className="trend">{t('k_conv')}</div></div>
+        <div className="card stat"><div className="lbl"><span>{t('k_due')}</span><Icon name="alert-triangle" /></div><div className="val">{summary.overdue ?? 0}</div><div className="trend bad">{nfmt(summary.overdue_amount)} KWD {t('pending')}</div></div>
       </div>
       <div className="grid g2" style={{ marginBottom: 18 }}>
         <div className="card"><h3><Icon name="trending-up" /><span>{t('ch_rev')}</span></h3><div className="chart-box"><RevenueChart /></div></div>
@@ -70,8 +70,8 @@ export function Requests({ requests, onApprove, onReject }) {
 }
 
 /* ===================== USERS ===================== */
-export function Users({ users, onToggle }) {
-  const { t } = useAdminT()
+export function Users({ users, onToggle, onConnections }) {
+  const { t, isAr } = useAdminT()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
 
@@ -111,7 +111,9 @@ export function Users({ users, onToggle }) {
                 <td><b>{u.mrr} KWD</b></td>
                 <td><span className={`badge ${stBadge(u.status)}`}>{t(u.status === 'suspended' ? 'susp' : u.status).toUpperCase()}</span></td>
                 <td style={{ whiteSpace: 'nowrap' }}>
-                  <button className="btn btn-o" style={{ padding: '6px 11px' }} title={t('login_as')}><Icon name="log-in" size={14} /></button>
+                  <button className="btn btn-conn" style={{ padding: '6px 11px' }} onClick={() => onConnections?.(u)} title={isAr ? 'الاتصالات' : 'Connections'}>
+                    <Icon name="plug-zap" size={14} />
+                  </button>
                   <button className="btn btn-o" style={{ padding: '6px 11px' }} title={t('edit')}><Icon name="pencil" size={14} /></button>
                   <button className={`btn ${u.status === 'suspended' ? 'btn-g' : 'btn-r'}`} style={{ padding: '6px 11px' }} onClick={() => onToggle(u.id)} title={u.status === 'suspended' ? t('activate') : t('suspend')}>
                     <Icon name={u.status === 'suspended' ? 'play' : 'pause'} size={14} />
@@ -127,14 +129,19 @@ export function Users({ users, onToggle }) {
 }
 
 /* ===================== PAYMENTS ===================== */
+const amtNum = (s) => parseFloat(String(s).replace(/[^\d.]/g, '')) || 0
+
 export function Payments() {
   const { t } = useAdminT()
+  const [pays, setPays] = useState([])
+  useEffect(() => { apiGet('/admin/payments').then(setPays).catch(() => {}) }, [])
+  const sum = (st) => pays.filter((p) => p.st === st).reduce((n, p) => n + amtNum(p.amt), 0).toFixed(2)
   return (
     <>
       <div className="grid g3" style={{ marginBottom: 18 }}>
-        <div className="card stat"><div className="lbl"><span>{t('p_col')}</span><Icon name="check-circle-2" /></div><div className="val">2,654 <small style={{ fontSize: 14 }}>KWD</small></div></div>
-        <div className="card stat"><div className="lbl"><span>{t('p_pending')}</span><Icon name="clock" /></div><div className="val">193 <small style={{ fontSize: 14 }}>KWD</small></div></div>
-        <div className="card stat"><div className="lbl"><span>{t('p_fail')}</span><Icon name="x-circle" /></div><div className="val">48 <small style={{ fontSize: 14 }}>KWD</small></div></div>
+        <div className="card stat"><div className="lbl"><span>{t('p_col')}</span><Icon name="check-circle-2" /></div><div className="val">{sum('paid')} <small style={{ fontSize: 14 }}>KWD</small></div></div>
+        <div className="card stat"><div className="lbl"><span>{t('p_pending')}</span><Icon name="clock" /></div><div className="val">{sum('pending')} <small style={{ fontSize: 14 }}>KWD</small></div></div>
+        <div className="card stat"><div className="lbl"><span>{t('p_fail')}</span><Icon name="x-circle" /></div><div className="val">{sum('failed')} <small style={{ fontSize: 14 }}>KWD</small></div></div>
       </div>
       <div className="card">
         <h3><Icon name="credit-card" /><span>{t('p_recent')}</span></h3>
@@ -142,9 +149,9 @@ export function Payments() {
           <table>
             <thead><tr><th>{t('th_ref')}</th><th>{t('th_biz')}</th><th>{t('th_meth')}</th><th>{t('th_amt')}</th><th>{t('th_date')}</th><th>{t('th_st')}</th></tr></thead>
             <tbody>
-              {demoPays.map((p) => (
+              {pays.map((p) => (
                 <tr key={p.ref}>
-                  <td><b>{p.ref}</b></td><td>{p.biz}</td><td>{p.meth}</td><td><b>{p.amt} KWD</b></td><td>{p.date}</td>
+                  <td><b>{p.ref}</b></td><td>{p.biz}</td><td>{p.meth}</td><td><b>{p.amt}</b></td><td>{p.date}</td>
                   <td><span className={`badge ${stBadge(p.st)}`}>{p.st.toUpperCase()}</span></td>
                 </tr>
               ))}
@@ -160,20 +167,27 @@ export function Payments() {
 export function Invoices() {
   const { t } = useAdminT()
   const toast = useToast()
+  const [invs, setInvs] = useState([])
+  const [q, setQ] = useState('')
+  const [f, setF] = useState('all')
+  useEffect(() => { apiGet('/admin/invoices').then(setInvs).catch(() => {}) }, [])
+  const rows = invs.filter((i) => (f === 'all' || i.st === f) && (i.no + i.biz).toLowerCase().includes(q.toLowerCase()))
   return (
     <div className="card">
       <div className="toolbar">
-        <input placeholder={t('srch_i')} />
-        <select><option>{t('f_all')}</option><option>{t('paid')}</option><option>{t('unpaid')}</option><option>{t('overdue')}</option></select>
+        <input placeholder={t('srch_i')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={f} onChange={(e) => setF(e.target.value)}>
+          <option value="all">{t('f_all')}</option><option value="paid">{t('paid')}</option><option value="unpaid">{t('unpaid')}</option><option value="overdue">{t('overdue')}</option>
+        </select>
         <button className="btn btn-p" onClick={() => toast()}><Icon name="plus" size={15} />{t('new_inv')}</button>
       </div>
       <div className="tbl">
         <table>
           <thead><tr><th>{t('th_no')}</th><th>{t('th_biz')}</th><th>{t('th_desc')}</th><th>{t('th_amt')}</th><th>{t('th_due')}</th><th>{t('th_st')}</th><th /></tr></thead>
           <tbody>
-            {demoInvs.map((i) => (
+            {rows.map((i) => (
               <tr key={i.no}>
-                <td><b>{i.no}</b></td><td>{i.biz}</td><td>{i.desc}</td><td><b>{i.amt} KWD</b></td><td>{i.due}</td>
+                <td><b>{i.no}</b></td><td>{i.biz}</td><td>{i.desc}</td><td><b>{i.amt}</b></td><td>{i.due}</td>
                 <td><span className={`badge ${stBadge(i.st)}`}>{i.st.toUpperCase()}</span></td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn btn-o" style={{ padding: '6px 11px' }} title="PDF"><Icon name="download" size={14} /></button>
@@ -194,6 +208,8 @@ export function Invoices() {
 export function Plans() {
   const { t } = useAdminT()
   const toast = useToast()
+  const [plans, setPlans] = useState([])
+  useEffect(() => { apiGet('/admin/plans').then(setPlans).catch(() => {}) }, [])
   return (
     <div className="card">
       <h3><Icon name="package" /><span>{t('pl_h')}</span></h3>
@@ -201,7 +217,7 @@ export function Plans() {
         <table>
           <thead><tr><th>{t('th_plan')}</th><th>{t('th_cat')}</th><th>{t('th_quota')}</th><th>{t('th_price')}</th><th>{t('th_subs')}</th><th /></tr></thead>
           <tbody>
-            {demoPlans.map((p) => (
+            {plans.map((p) => (
               <tr key={p.name}>
                 <td><b>{p.name}</b></td><td>{p.cat}</td><td>{p.quota}</td><td><b>{p.price} KWD</b></td><td>{p.subs}</td>
                 <td><button className="btn btn-o" style={{ padding: '6px 12px' }} onClick={() => toast()}><Icon name="pencil" size={13} />{t('edit')}</button></td>
@@ -217,12 +233,8 @@ export function Plans() {
 /* ===================== ANALYTICS ===================== */
 export function Analytics() {
   const { t } = useAdminT()
-  const top = [
-    { biz: 'Al Noor Perfumes', msgs: '5,517', min: '512', ai: '86%', b: 'b-ok', mrr: '145 KWD' },
-    { biz: 'Shgardi Auto', msgs: '4,890', min: '804', ai: '91%', b: 'b-ok', mrr: '349 KWD' },
-    { biz: 'Dar Al Teeb', msgs: '3,204', min: '—', ai: '88%', b: 'b-ok', mrr: '76 KWD' },
-    { biz: 'Kuwait Dental Co.', msgs: '2,911', min: '377', ai: '74%', b: 'b-warn', mrr: '145 KWD' },
-  ]
+  const [top, setTop] = useState([])
+  useEffect(() => { apiGet('/admin/analytics').then((a) => setTop(a.top_businesses || [])).catch(() => {}) }, [])
   return (
     <>
       <div className="grid g2" style={{ marginBottom: 18 }}>
@@ -233,10 +245,10 @@ export function Analytics() {
         <h3><Icon name="trophy" /><span>{t('an_top')}</span></h3>
         <div className="tbl">
           <table>
-            <thead><tr><th>{t('th_biz')}</th><th>{t('th_msgs')}</th><th>{t('th_min')}</th><th>{t('th_ai')}</th><th>{t('th_mrr')}</th></tr></thead>
+            <thead><tr><th>{t('th_biz')}</th><th>{t('th_msgs')}</th><th>{t('th_min')}</th><th>{t('th_mrr')}</th></tr></thead>
             <tbody>
               {top.map((r) => (
-                <tr key={r.biz}><td>{r.biz}</td><td>{r.msgs}</td><td>{r.min}</td><td><span className={`badge ${r.b}`}>{r.ai}</span></td><td>{r.mrr}</td></tr>
+                <tr key={r.biz}><td>{r.biz}</td><td>{Number(r.msgs).toLocaleString('en')}</td><td>{r.voice_min || '—'}</td><td>{r.mrr}</td></tr>
               ))}
             </tbody>
           </table>

@@ -1,12 +1,18 @@
+import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { T, useLang } from '../../i18n/LangContext'
-import { WHATSAPP } from '../../lib/api'
-import { invoices } from '../../data/demo'
+import { WHATSAPP, apiGet, apiPostAuth, apiDelete } from '../../lib/api'
 import { Switch, useToast } from './ui'
 import { WeekChart, ChannelChart, MonthChart, ResolutionChart, LeadsChart } from './Charts'
 
+const pct = (u) => (u && u.quota ? Math.min(100, Math.round((u.used / u.quota) * 100)) : 0)
+const num = (n) => Number(n || 0).toLocaleString('en')
+
 /* ===================== OVERVIEW ===================== */
-export function Overview({ summary }) {
+export function Overview({ summary, usage = {} }) {
+  const wa = usage.wa_messages
+  const ig = usage.ig_contacts
+  const vc = usage.voice_minutes
   return (
     <>
       <div className="grid g4" style={{ marginBottom: 18 }}>
@@ -32,24 +38,24 @@ export function Overview({ summary }) {
         </div>
       </div>
       <div className="grid g2" style={{ marginBottom: 18 }}>
-        <div className="card"><h3><Icon name="activity" /><T k="ov_ch1" /></h3><div className="chart-box"><WeekChart /></div></div>
-        <div className="card"><h3><Icon name="pie-chart" /><T k="ov_ch2" /></h3><div className="chart-box"><ChannelChart /></div></div>
+        <div className="card"><h3><Icon name="activity" /><T k="ov_ch1" /></h3><div className="chart-box"><WeekChart data={summary.week} /></div></div>
+        <div className="card"><h3><Icon name="pie-chart" /><T k="ov_ch2" /></h3><div className="chart-box"><ChannelChart data={summary.by_channel} /></div></div>
       </div>
       <div className="grid g3">
         <div className="card">
           <h3><Icon name="message-circle" />WhatsApp</h3>
-          <div className="kv"><T k="u_used" /><span><b>3,412</b> / 5,000</span></div>
-          <div className="progress"><i style={{ width: '68%' }} /></div>
+          <div className="kv"><T k="u_used" /><span><b>{num(wa?.used)}</b> / {num(wa?.quota)}</span></div>
+          <div className="progress"><i style={{ width: pct(wa) + '%' }} /></div>
         </div>
         <div className="card">
           <h3><Icon name="instagram" />Instagram</h3>
-          <div className="kv"><T k="u_cont" /><span><b>2,105</b> / 5,000</span></div>
-          <div className="progress"><i style={{ width: '42%', background: 'linear-gradient(90deg,var(--igA),var(--igB))' }} /></div>
+          <div className="kv"><T k="u_cont" /><span><b>{num(ig?.used)}</b> / {num(ig?.quota)}</span></div>
+          <div className="progress"><i style={{ width: pct(ig) + '%', background: 'linear-gradient(90deg,var(--igA),var(--igB))' }} /></div>
         </div>
         <div className="card">
           <h3><Icon name="phone-call" /><T k="n_vc" /></h3>
-          <div className="kv"><T k="u_min" /><span><b>512</b> / 900</span></div>
-          <div className="progress"><i style={{ width: '57%', background: 'var(--vc)' }} /></div>
+          <div className="kv"><T k="u_min" /><span><b>{num(vc?.used)}</b> / {num(vc?.quota)}</span></div>
+          <div className="progress"><i style={{ width: pct(vc) + '%', background: 'var(--vc)' }} /></div>
         </div>
       </div>
     </>
@@ -208,16 +214,35 @@ export function WidgetView() {
 }
 
 /* ===================== KNOWLEDGE ===================== */
+const KB_ICON = { file: 'file-text', url: 'globe', qa: 'message-square' }
+const KB_BADGE = (st) => (st === 'trained' ? 'b-ok' : st === 'processing' ? 'b-warn' : 'b-info')
+
 export function KnowledgeView() {
   const toast = useToast()
-  const srcs = [
-    { icon: 'file-text', b: 'Price-List-2026.pdf', d: 'kb_s1', badge: 'b-ok', st: 'trained' },
-    { icon: 'file-text', b: 'Delivery-Policy.docx', d: 'kb_s2', badge: 'b-ok', st: 'trained' },
-    { icon: 'globe', b: 'alnoorperfumes.com/faq', d: 'kb_s3', badge: 'b-ok', st: 'trained' },
-    { icon: 'message-square', bKey: 'kb_s4b', d: 'kb_s4', badge: 'b-ok', st: 'trained' },
-    { icon: 'file-spreadsheet', b: 'Ramadan-Offers.xlsx', d: 'kb_s5', badge: 'b-warn', st: 'processing' },
-  ]
   const { t } = useLang()
+  const [sources, setSources] = useState([])
+  const [url, setUrl] = useState('')
+  const [q, setQ] = useState('')
+  const [a, setA] = useState('')
+
+  const load = () => apiGet('/knowledge').then(setSources).catch(() => {})
+  useEffect(() => { load() }, [])
+
+  async function importUrl() {
+    if (!url.trim()) return
+    await apiPostAuth('/knowledge', { type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL' }).catch(() => {})
+    setUrl(''); toast(); load()
+  }
+  async function addQa() {
+    if (!q.trim()) return
+    await apiPostAuth('/knowledge', { type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A' }).catch(() => {})
+    setQ(''); setA(''); toast(); load()
+  }
+  async function remove(id) {
+    await apiDelete('/knowledge/' + id).catch(() => {})
+    load()
+  }
+
   return (
     <div className="grid g2">
       <div className="card">
@@ -229,25 +254,29 @@ export function KnowledgeView() {
         </div>
         <div className="field"><label><T k="kb_url" /></label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input placeholder="https://alnoorperfumes.com/faq" />
-            <button className="btn btn-p"><T k="import" /></button>
+            <input placeholder="https://alnoorperfumes.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <button className="btn btn-p" onClick={importUrl}><T k="import" /></button>
           </div>
         </div>
         <div className="field"><label><T k="kb_qa" /></label>
-          <input placeholder={t('kb_q')} style={{ marginBottom: 8 }} />
-          <textarea rows="2" placeholder={t('kb_a')} />
+          <input placeholder={t('kb_q')} value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
+          <textarea rows="2" placeholder={t('kb_a')} value={a} onChange={(e) => setA(e.target.value)} />
         </div>
-        <button className="btn btn-g" onClick={() => toast()}><Icon name="brain" size={16} /><T k="kb_train" /></button>
+        <button className="btn btn-g" onClick={addQa}><Icon name="brain" size={16} /><T k="kb_train" /></button>
       </div>
       <div className="card">
-        <h3><Icon name="library" /><T k="kb_src" /> <span className="badge b-info" style={{ marginInlineStart: 'auto' }}>6</span></h3>
-        {srcs.map((s, i) => (
-          <div className="kb-item" key={i}>
-            <div className="ic"><Icon name={s.icon} /></div>
-            <div style={{ flex: 1 }}><b>{s.bKey ? <T k={s.bKey} /> : s.b}</b><span><T k={s.d} /></span></div>
-            <span className={`badge ${s.badge}`}><T k={s.st} /></span>
+        <h3><Icon name="library" /><T k="kb_src" /> <span className="badge b-info" style={{ marginInlineStart: 'auto' }}>{sources.length}</span></h3>
+        {sources.map((s) => (
+          <div className="kb-item" key={s.id}>
+            <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
+            <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
+            <span className={`badge ${KB_BADGE(s.status)}`}>{s.status?.toUpperCase()}</span>
+            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => remove(s.id)}>
+              <Icon name="x" size={13} />
+            </button>
           </div>
         ))}
+        {sources.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}>No knowledge sources yet.</div>}
       </div>
     </div>
   )
@@ -288,12 +317,17 @@ export function AnalyticsView() {
 }
 
 /* ===================== BILLING ===================== */
+const INV_BADGE = (st) => (st === 'paid' ? 'b-ok' : st === 'overdue' ? 'b-bad' : 'b-warn')
+
 export function BillingView() {
+  const { user, plan } = useSessionUser()
+  const [invoices, setInvoices] = useState([])
+  useEffect(() => { apiGet('/me/invoices').then(setInvoices).catch(() => {}) }, [])
   return (
     <>
       <div className="grid g3" style={{ marginBottom: 18 }}>
-        <div className="card stat"><div className="lbl"><T k="bl_plan" /><Icon name="package" /></div><div className="val" style={{ fontSize: 20 }}>Complete Growth</div><div className="trend">145 KWD / <T k="mo" /></div></div>
-        <div className="card stat"><div className="lbl"><T k="bl_next" /><Icon name="calendar" /></div><div className="val" style={{ fontSize: 20 }}>1 Aug 2026</div><div className="trend"><T k="auto_renew" /></div></div>
+        <div className="card stat"><div className="lbl"><T k="bl_plan" /><Icon name="package" /></div><div className="val" style={{ fontSize: 20 }}>{plan || '—'}</div><div className="trend">{user.business_name || ''}</div></div>
+        <div className="card stat"><div className="lbl"><T k="bl_next" /><Icon name="calendar" /></div><div className="val" style={{ fontSize: 20 }}>{invoices[0]?.date || '—'}</div><div className="trend"><T k="auto_renew" /></div></div>
         <div className="card stat"><div className="lbl"><T k="bl_status" /><Icon name="shield-check" /></div><div className="val" style={{ fontSize: 20, color: 'var(--lagoon-d)' }}><T k="paid" /></div><div className="trend"><T k="thanks" /></div></div>
       </div>
       <div className="card">
@@ -305,7 +339,7 @@ export function BillingView() {
               {invoices.map((inv) => (
                 <tr key={inv.no}>
                   <td>{inv.no}</td><td>{inv.date}</td><td>{inv.desc}</td><td>{inv.amt}</td>
-                  <td><span className="badge b-ok"><T k="paid" /></span></td>
+                  <td><span className={`badge ${INV_BADGE(inv.status)}`}>{inv.status?.toUpperCase()}</span></td>
                   <td><button className="btn btn-o" style={{ padding: '6px 12px' }}><Icon name="download" size={14} />PDF</button></td>
                 </tr>
               ))}
@@ -319,6 +353,16 @@ export function BillingView() {
       </div>
     </>
   )
+}
+
+/** Read the logged-in user (+plan label) from localStorage. */
+function useSessionUser() {
+  try {
+    const user = JSON.parse(localStorage.getItem('sts_user') || '{}')
+    return { user, plan: user.plan }
+  } catch {
+    return { user: {}, plan: '' }
+  }
 }
 
 /* ===================== SETTINGS ===================== */
