@@ -157,9 +157,13 @@ create table if not exists sts_messages (
   direction       text not null,                      -- in | out
   sender          text not null,                      -- customer | ai | human
   body            text,
+  provider_msg_id text,                               -- WhatsApp/Meta message id, for webhook idempotency
   created_at      timestamptz default now()
 );
 create index if not exists idx_sts_msg_conv on sts_messages(conversation_id, created_at);
+-- idempotency for inbound webhooks (dedupe Meta retries); many NULLs are fine
+alter table sts_messages add column if not exists provider_msg_id text;
+create unique index if not exists idx_sts_msg_provider on sts_messages(provider_msg_id);
 
 -- ---------- voice call logs ----------
 create table if not exists sts_call_logs (

@@ -6,9 +6,12 @@ import { comparePassword, hashPassword, signToken, auth, adminOnly } from './lib
 import { encryptJSON, decryptJSON, maskCredentials, maskValue } from './lib/crypto.js'
 import { CONNECTION_SPEC, CHANNELS, isConnected } from './lib/channels.js'
 import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
+import { sendWhatsAppText, verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
+import { generateReply } from './lib/ai.js'
 
 const app = express()
-app.use(express.json({ limit: '1mb' }))
+// keep the raw body so Meta webhook signatures (X-Hub-Signature-256) can be verified
+app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf } }))
 
 const origins = (process.env.CORS_ORIGINS || '')
   .split(',')
@@ -84,6 +87,112 @@ app.get('/api/auth/me', auth, wrap(async (req, res) => {
     business_id: req.user.business_id, business_name: req.user.business_name, plan: req.user.plan_code,
   })
 }))
+
+/* ================================================================
+ * WHATSAPP — Meta Cloud API webhook + AI agent
+ * ============================================================== */
+
+/** Decrypted credentials for a business+channel (null if not configured). */
+async function getChannelCreds(businessId, channel) {
+  const row = await one(`select secrets_enc from sts_channel_configs where business_id=$1 and channel=$2`, [businessId, channel])
+  return row ? decryptJSON(row.secrets_enc) : null
+}
+
+/** True if the verify token matches the platform token or any business's WhatsApp verify_token. */
+async function isValidWhatsAppVerifyToken(token) {
+  if (!token) return false
+  if (process.env.WHATSAPP_VERIFY_TOKEN && token === process.env.WHATSAPP_VERIFY_TOKEN) return true
+  const rows = await many(`select secrets_enc from sts_channel_configs where channel='whatsapp'`)
+  for (const r of rows) {
+    try { if (decryptJSON(r.secrets_enc)?.verify_token === token) return true } catch { /* skip */ }
+  }
+  return false
+}
+
+// Webhook verification (Meta calls this once when you save the callback URL).
+app.get('/api/webhooks/whatsapp', wrap(async (req, res) => {
+  const mode = req.query['hub.mode']
+  const token = req.query['hub.verify_token']
+  const challenge = req.query['hub.challenge']
+  if (mode === 'subscribe' && (await isValidWhatsAppVerifyToken(token))) {
+    return res.status(200).send(String(challenge))
+  }
+  res.sendStatus(403)
+}))
+
+// Inbound messages. Always ACK 200 fast so Meta doesn't retry; process inline.
+app.post('/api/webhooks/whatsapp', wrap(async (req, res) => {
+  const inbound = parseInboundMessages(req.body)
+  if (!inbound.length) return res.sendStatus(200)
+
+  // group by phone_number_id → each maps to one business
+  const byPhone = {}
+  for (const m of inbound) (byPhone[m.phoneNumberId] ||= []).push(m)
+
+  for (const [phoneId, msgs] of Object.entries(byPhone)) {
+    const cfg = await one(`select business_id, secrets_enc from sts_channel_configs where channel='whatsapp' and ext_ref=$1`, [phoneId])
+    if (!cfg) continue
+    let creds
+    try { creds = decryptJSON(cfg.secrets_enc) } catch { continue }
+    // verify Meta's signature with this business's app secret (skip only if none is set)
+    if (creds.app_secret && !verifyMetaSignature(creds.app_secret, req.rawBody, req.get('x-hub-signature-256'))) {
+      console.warn('WhatsApp signature mismatch for phone_number_id', phoneId)
+      continue
+    }
+    for (const m of msgs) {
+      await handleInboundWhatsApp(cfg.business_id, creds, m).catch((e) => console.error('WA handle error:', e.message))
+    }
+  }
+  res.sendStatus(200)
+}))
+
+/** Store an inbound WhatsApp message and, if auto-reply is on, answer with the AI agent. */
+async function handleInboundWhatsApp(businessId, creds, msg) {
+  const biz = await one(`select name from sts_businesses where id=$1`, [businessId])
+
+  // upsert the conversation (one thread per customer number)
+  const conv = await one(
+    `insert into sts_conversations (business_id, channel, customer_handle, customer_name, last_message_preview, last_message_at, unread)
+     values ($1,'whatsapp',$2,$3,$4, now(), 1)
+     on conflict (business_id, channel, customer_handle) do update set
+       customer_name = coalesce(sts_conversations.customer_name, excluded.customer_name),
+       last_message_preview = excluded.last_message_preview, last_message_at = now(),
+       unread = sts_conversations.unread + 1
+     returning id, mode`,
+    [businessId, msg.from, msg.name, msg.text],
+  )
+
+  // prior turns for context (before inserting the new one)
+  const prior = await many(
+    `select direction, body from sts_messages where conversation_id=$1 order by created_at desc limit 8`,
+    [conv.id],
+  )
+
+  // store the inbound message; skip if we've already processed this Meta id (retry)
+  const ins = await one(
+    `insert into sts_messages (conversation_id, business_id, direction, sender, body, provider_msg_id)
+     values ($1,$2,'in','customer',$3,$4)
+     on conflict (provider_msg_id) do nothing
+     returning id`,
+    [conv.id, businessId, msg.text, msg.messageId],
+  )
+  if (!ins) return // duplicate delivery → already handled
+
+  // respect auto-reply + human-takeover
+  const bot = await one(`select auto_reply from sts_bot_settings where business_id=$1 and channel='whatsapp'`, [businessId])
+  const autoReply = bot ? bot.auto_reply : true
+  if (!autoReply || conv.mode === 'human') return
+
+  const history = prior.reverse().map((h) => ({ role: h.direction === 'in' ? 'user' : 'assistant', content: h.body }))
+  const reply = await generateReply({ businessId, businessName: biz?.name, channel: 'whatsapp', userText: msg.text, history })
+
+  await sendWhatsAppText(creds, msg.from, reply)
+  await pool.query(
+    `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out','ai',$3)`,
+    [conv.id, businessId, reply],
+  )
+  await pool.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, reply])
+}
 
 /* ================================================================
  * PUBLIC — access requests + plans
