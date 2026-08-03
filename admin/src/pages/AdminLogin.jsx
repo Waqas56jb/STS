@@ -21,6 +21,7 @@ export function AdminLogin({ onSuccess }) {
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showPw, setShowPw] = useState(false)
 
   async function submit(e) {
     e.preventDefault()
@@ -101,14 +102,25 @@ export function AdminLogin({ onSuccess }) {
 
           <div className="al-field">
             <label>{t('lg_pass')}</label>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPw ? 'text' : 'password'}
+                required
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ paddingInlineEnd: 44 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((s) => !s)}
+                aria-label={showPw ? (isAr ? 'إخفاء كلمة المرور' : 'Hide password') : (isAr ? 'إظهار كلمة المرور' : 'Show password')}
+                style={{ position: 'absolute', insetInlineEnd: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 0, padding: 4, cursor: 'pointer', color: 'var(--mut)', display: 'flex', alignItems: 'center' }}
+              >
+                <Icon name={showPw ? 'eye-off' : 'eye'} size={18} />
+              </button>
+            </div>
           </div>
 
           <button type="submit" className="al-btn" disabled={busy}>

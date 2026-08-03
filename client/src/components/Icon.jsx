@@ -9,7 +9,7 @@
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpCircle, BadgeCheck,
   Banknote, BarChart3, Bell, BookOpen, Bot, Brain, Building2, Calendar, Check,
-  CheckCircle2, Circle, Clock, Code2, CreditCard, Crown, Download, Eye,
+  CheckCircle2, Circle, Clock, Code2, CreditCard, Crown, Download, Eye, EyeOff,
   FileAudio, FileSpreadsheet, FileText, FileUp, Globe, Hash, HelpCircle, Inbox,
   Instagram, KeyRound, Languages, LayoutDashboard, Library, Lock, LogIn, LogOut,
   Menu, MessageCircle, MessageSquare, MessagesSquare, Package, Pause, Pencil,
@@ -52,6 +52,7 @@ const MAP = {
   'credit-card': CreditCard,
   download: Download,
   eye: Eye,
+  'eye-off': EyeOff,
   'file-audio': FileAudio,
   'file-spreadsheet': FileSpreadsheet,
   'file-text': FileText,

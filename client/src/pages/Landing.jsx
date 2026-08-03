@@ -275,6 +275,7 @@ function LoginModal({ open, onClose }) {
   const { t, isAr } = useLang()
   const navigate = useNavigate()
   const [err, setErr] = useState('')
+  const [showPw, setShowPw] = useState(false)
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -312,7 +313,20 @@ function LoginModal({ open, onClose }) {
         <p><T k="lg_p" /></p>
         <form onSubmit={onSubmit}>
           <div className="field"><label><T k="f_email" /></label><input required type="email" name="lgEmail" placeholder="you@business.com" /></div>
-          <div className="field"><label><T k="f_pass" /></label><input required type="password" name="lgPass" placeholder="••••••••" /></div>
+          <div className="field">
+            <label><T k="f_pass" /></label>
+            <div style={{ position: 'relative' }}>
+              <input required type={showPw ? 'text' : 'password'} name="lgPass" placeholder="••••••••" style={{ paddingInlineEnd: 44 }} />
+              <button
+                type="button"
+                onClick={() => setShowPw((s) => !s)}
+                aria-label={showPw ? (isAr ? 'إخفاء كلمة المرور' : 'Hide password') : (isAr ? 'إظهار كلمة المرور' : 'Show password')}
+                style={{ position: 'absolute', insetInlineEnd: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 0, padding: 4, cursor: 'pointer', color: 'var(--mut)', display: 'flex', alignItems: 'center' }}
+              >
+                <Icon name={showPw ? 'eye-off' : 'eye'} size={18} />
+              </button>
+            </div>
+          </div>
           <button className="btn btn-dark" style={{ width: '100%', justifyContent: 'center' }} type="submit">{t('lg_btn')}</button>
           <div className="ok-note" style={{ display: err ? 'block' : 'none', background: '#FEE2E2', color: '#991B1B' }}>{err}</div>
         </form>
