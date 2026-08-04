@@ -20,7 +20,7 @@ const TONE = {
 }
 
 /** Resolve the OpenAI API key: env override first, else the platform key. */
-async function resolveOpenAIKey() {
+export async function resolveOpenAIKey() {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY
   const row = await one(`select value from sts_settings where key='openai_key'`)
   if (!row?.value) return null

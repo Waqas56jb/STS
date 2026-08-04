@@ -4,6 +4,7 @@ import { T, useLang } from '../../i18n/LangContext'
 import { WHATSAPP, apiGet, apiPut, apiPostAuth, apiDelete, getUser } from '../../lib/api'
 import { Switch, useToast } from './ui'
 import { ConnectionForm, BotSettings } from './ConnectionForm'
+import { DialCard, VoiceWebhookCard, CallHistory } from './VoiceAgent'
 import { WeekChart, ChannelChart, MonthChart, ResolutionChart, LeadsChart } from './Charts'
 
 const pct = (u) => (u && u.quota ? Math.min(100, Math.round((u.used / u.quota) * 100)) : 0)
@@ -86,11 +87,19 @@ export function InstagramView() {
 
 /* ===================== VOICE ===================== */
 export function VoiceView() {
+  const [reload, setReload] = useState(0)
   return (
-    <div className="grid g2">
-      <ConnectionForm channel="voice" />
-      <BotSettings channel="voice" />
-    </div>
+    <>
+      <div className="grid g2" style={{ marginBottom: 18 }}>
+        <ConnectionForm channel="voice" />
+        <BotSettings channel="voice" showToggles={false} showLanguage greetingKey="vc_purpose" title="vc_train" />
+      </div>
+      <div className="grid g2" style={{ marginBottom: 18 }}>
+        <DialCard onCalled={() => setReload((n) => n + 1)} />
+        <VoiceWebhookCard />
+      </div>
+      <CallHistory reloadKey={reload} />
+    </>
   )
 }
 

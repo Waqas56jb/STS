@@ -8,10 +8,15 @@ import { CONNECTION_SPEC, CHANNELS, isConnected } from './lib/channels.js'
 import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
 import { sendWhatsAppText, verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
 import { generateReply } from './lib/ai.js'
+import { twimlStream, twilioCreateCall, attachVoiceBridge } from './lib/voice.js'
+import http from 'node:http'
+import { WebSocketServer } from 'ws'
 
 const app = express()
 // keep the raw body so Meta webhook signatures (X-Hub-Signature-256) can be verified
 app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf } }))
+// Twilio posts webhooks as application/x-www-form-urlencoded
+app.use(express.urlencoded({ extended: false }))
 
 const origins = (process.env.CORS_ORIGINS || '')
   .split(',')
@@ -343,8 +348,7 @@ app.get('/api/me/leads', auth, wrap(async (req, res) => {
 }))
 
 app.get('/api/me/calls', auth, wrap(async (req, res) => {
-  const rows = await many(`select caller, direction, duration_sec, summary from sts_call_logs where business_id=$1 order by created_at desc limit 20`, [biz(req)])
-  res.json(rows)
+  res.json(await callList(biz(req)))
 }))
 
 // Inbox
@@ -811,7 +815,204 @@ function catLabel(c) {
 }
 
 /* ================================================================
- * START
+ * VOICE AGENT — Twilio ⇄ OpenAI Realtime (incoming + outgoing)
+ * ============================================================== */
+const digits = (s) => String(s || '').replace(/[^\d+]/g, '')
+
+function voiceBase(req) {
+  if (process.env.VOICE_PUBLIC_BASE_URL) return process.env.VOICE_PUBLIC_BASE_URL.replace(/\/$/, '')
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'http'
+  return `${proto}://${req.get('host')}`
+}
+function voiceWsUrl(req) {
+  if (process.env.VOICE_PUBLIC_WS_URL) return process.env.VOICE_PUBLIC_WS_URL
+  const proto = (req.get('x-forwarded-proto') || req.protocol) === 'https' ? 'wss' : 'ws'
+  return `${proto}://${req.get('host')}/voice-stream`
+}
+function voiceWebhookInfo(base) {
+  return {
+    incoming_url: `${base}/api/voice/incoming`,
+    status_url: `${base}/api/voice/status`,
+    note: 'Twilio → your number → Voice Configuration → "A call comes in" = Webhook, HTTP POST → paste incoming_url. (Optional) Call status changes → status_url.',
+  }
+}
+function callShape(r, full) {
+  const s = {
+    id: r.id, direction: r.direction, from: r.from_number, to: r.to_number, caller: r.caller,
+    status: r.status, duration_sec: r.duration_sec, summary: r.summary, language: r.language,
+    date: r.created_at, started_at: r.started_at, ended_at: r.ended_at,
+  }
+  if (full) { s.transcript = r.transcript; s.turns = r.transcript_json || [] }
+  return s
+}
+async function callList(businessId) {
+  const rows = await many(`select * from sts_call_logs where business_id=$1 order by created_at desc limit 100`, [businessId])
+  return rows.map((r) => callShape(r, false))
+}
+/** Find the business that owns a given Twilio number (voice connection). */
+async function businessByTwilioNumber(num) {
+  const target = digits(num)
+  const rows = await many(`select business_id, secrets_enc from sts_channel_configs where channel='voice'`)
+  for (const r of rows) {
+    try { if (digits(decryptJSON(r.secrets_enc).twilio_number) === target) return r.business_id } catch { /* skip */ }
+  }
+  return null
+}
+/** Place an outbound call for a business (shared by customer + admin). */
+async function startOutboundCall(businessId, toRaw, base) {
+  const to = digits(toRaw)
+  if (!to || to.replace('+', '').length < 6) { const e = new Error('Enter a valid number with country code'); e.code = 400; throw e }
+  const creds = await getChannelCreds(businessId, 'voice')
+  if (!creds?.account_sid || !creds?.auth_token || !creds?.twilio_number) {
+    const e = new Error('Connect your Twilio voice credentials first (Settings → Voice)'); e.code = 400; throw e
+  }
+  const twimlUrl = `${base}/api/voice/outgoing?businessId=${businessId}&to=${encodeURIComponent(to)}`
+  const call = await twilioCreateCall({
+    accountSid: creds.account_sid, authToken: creds.auth_token, from: creds.twilio_number,
+    to, twimlUrl, statusCallback: `${base}/api/voice/status`,
+  })
+  await pool.query(
+    `insert into sts_call_logs (business_id, direction, from_number, to_number, caller, status, provider_call_sid, started_at)
+     values ($1,'outbound',$2,$3,$3,'initiated',$4, now()) on conflict (provider_call_sid) do nothing`,
+    [businessId, creds.twilio_number, to, call.sid],
+  ).catch(() => {})
+  return call
+}
+/** The dedicated "STS Official" business the admin's own agent uses. */
+async function platformBusinessId() {
+  const s = await one(`select value from sts_settings where key='platform_business_id'`)
+  if (s?.value) return s.value
+  let b = await one(`select id from sts_businesses where name='STS Official' limit 1`)
+  if (!b) b = await one(`insert into sts_businesses (name, plan_code, status) values ('STS Official','free','paid') returning id`)
+  await pool.query(`insert into sts_settings (key,value) values ('platform_business_id',$1) on conflict (key) do update set value=excluded.value`, [b.id])
+  return b.id
+}
+
+/* ---------- public Twilio webhooks (no auth) ---------- */
+app.post('/api/voice/incoming', wrap(async (req, res) => {
+  const to = req.body.To || req.body.Called
+  const from = req.body.From || req.body.Caller
+  const callSid = req.body.CallSid
+  res.type('text/xml')
+  const businessId = await businessByTwilioNumber(to)
+  if (!businessId) {
+    return res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>This number is not configured. Goodbye.</Say><Hangup/></Response>')
+  }
+  await pool.query(
+    `insert into sts_call_logs (business_id, direction, from_number, to_number, caller, status, provider_call_sid, started_at)
+     values ($1,'inbound',$2,$3,$2,'in_progress',$4, now()) on conflict (provider_call_sid) do nothing`,
+    [businessId, from, to, callSid],
+  ).catch(() => {})
+  res.send(twimlStream(voiceWsUrl(req), { businessId, direction: 'inbound', from, to }))
+}))
+
+app.post('/api/voice/outgoing', wrap(async (req, res) => {
+  const businessId = req.query.businessId
+  const to = req.body.To || req.query.to
+  const from = req.body.From || req.query.from
+  res.type('text/xml')
+  if (!businessId) return res.send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
+  res.send(twimlStream(voiceWsUrl(req), { businessId, direction: 'outbound', from, to }))
+}))
+
+app.post('/api/voice/status', wrap(async (req, res) => {
+  const sid = req.body.CallSid
+  const st = req.body.CallStatus
+  const dur = parseInt(req.body.CallDuration || '0', 10)
+  if (sid && st) {
+    const map = { 'in-progress': 'in_progress', completed: 'completed', failed: 'failed', 'no-answer': 'no_answer', busy: 'no_answer', canceled: 'failed', ringing: 'ringing', initiated: 'initiated' }
+    await pool.query(
+      `update sts_call_logs set status=$2, duration_sec=greatest(duration_sec,$3), ended_at=case when $2 in ('completed','failed','no_answer') then now() else ended_at end where provider_call_sid=$1`,
+      [sid, map[st] || st, dur || 0],
+    ).catch(() => {})
+  }
+  res.sendStatus(200)
+}))
+
+/* ---------- CUSTOMER voice endpoints ---------- */
+app.post('/api/me/calls/dial', auth, wrap(async (req, res) => {
+  try {
+    const call = await startOutboundCall(biz(req), req.body?.to, voiceBase(req))
+    res.json({ ok: true, call_sid: call.sid, status: call.status })
+  } catch (e) { res.status(e.code || 500).json({ error: e.message }) }
+}))
+app.get('/api/me/calls/:id', auth, wrap(async (req, res) => {
+  const row = await one(`select * from sts_call_logs where id=$1 and business_id=$2`, [req.params.id, biz(req)])
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json(callShape(row, true))
+}))
+app.get('/api/me/voice/webhook-info', auth, wrap(async (req, res) => res.json(voiceWebhookInfo(voiceBase(req)))))
+
+/* ---------- ADMIN voice endpoints (STS Official business) ---------- */
+app.get('/api/admin/voice/context', auth, adminOnly, wrap(async (req, res) => {
+  res.json({ business_id: await platformBusinessId(), ...voiceWebhookInfo(voiceBase(req)) })
+}))
+app.get('/api/admin/voice/connection', auth, adminOnly, wrap(async (_req, res) => {
+  const conns = await connectionsFor(await platformBusinessId())
+  res.json(conns.find((c) => c.channel === 'voice'))
+}))
+app.put('/api/admin/voice/connection', auth, adminOnly, wrap(async (req, res) => {
+  const connected = await saveChannelConnection(await platformBusinessId(), 'voice', req.body?.fields || {})
+  res.json({ ok: true, connected })
+}))
+app.post('/api/admin/voice/dial', auth, adminOnly, wrap(async (req, res) => {
+  try {
+    const call = await startOutboundCall(await platformBusinessId(), req.body?.to, voiceBase(req))
+    res.json({ ok: true, call_sid: call.sid, status: call.status })
+  } catch (e) { res.status(e.code || 500).json({ error: e.message }) }
+}))
+app.get('/api/admin/voice/calls', auth, adminOnly, wrap(async (_req, res) => res.json(await callList(await platformBusinessId()))))
+app.get('/api/admin/voice/calls/:id', auth, adminOnly, wrap(async (req, res) => {
+  const row = await one(`select * from sts_call_logs where id=$1 and business_id=$2`, [req.params.id, await platformBusinessId()])
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json(callShape(row, true))
+}))
+// admin voice agent training (bot settings + knowledge) on the STS Official business
+app.get('/api/admin/voice/bot', auth, adminOnly, wrap(async (_req, res) => {
+  const pid = await platformBusinessId()
+  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel='voice'`, [pid])
+  res.json(row || { channel: 'voice', greeting: '', tone: 'friendly', language: 'auto' })
+}))
+app.put('/api/admin/voice/bot', auth, adminOnly, wrap(async (req, res) => {
+  const pid = await platformBusinessId()
+  const b = req.body || {}
+  const row = await one(
+    `insert into sts_bot_settings (business_id, channel, greeting, tone, language, updated_at)
+     values ($1,'voice',$2,$3,$4, now())
+     on conflict (business_id, channel) do update set greeting=excluded.greeting, tone=excluded.tone, language=excluded.language, updated_at=now()
+     returning *`,
+    [pid, b.greeting || '', b.tone || 'friendly', b.language || 'auto'],
+  )
+  res.json(row)
+}))
+app.get('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (_req, res) => {
+  const pid = await platformBusinessId()
+  res.json(await many(`select id, type, title, meta, source_url, status, created_at from sts_knowledge_sources where business_id=$1 order by created_at desc`, [pid]))
+}))
+app.post('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) => {
+  const pid = await platformBusinessId()
+  const { type, title, content, source_url, meta } = req.body || {}
+  if (!title) return res.status(400).json({ error: 'title required' })
+  const row = await one(
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, status)
+     values ($1,$2,$3,$4,$5,$6,'trained') returning id, type, title, meta, source_url, status, created_at`,
+    [pid, type || 'qa', title, content || null, source_url || null, meta || null],
+  )
+  res.status(201).json(row)
+}))
+app.delete('/api/admin/voice/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
+  await pool.query(`delete from sts_knowledge_sources where id=$1 and business_id=$2`, [req.params.id, await platformBusinessId()])
+  res.json({ ok: true })
+}))
+
+/* ================================================================
+ * START (HTTP + WebSocket for Twilio Media Streams)
  * ============================================================== */
 const PORT = process.env.PORT || 4000
-app.listen(PORT, () => console.log(`STS API on http://localhost:${PORT}`))
+const server = http.createServer(app)
+
+// Twilio Media Streams connect here; each connection is bridged to OpenAI Realtime.
+const wss = new WebSocketServer({ server, path: '/voice-stream' })
+wss.on('connection', (ws) => attachVoiceBridge(ws))
+
+server.listen(PORT, () => console.log(`STS API + voice WS on http://localhost:${PORT}`))

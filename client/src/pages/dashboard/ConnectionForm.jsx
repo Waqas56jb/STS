@@ -115,25 +115,24 @@ export function ConnectionForm({ channel }) {
  * handoff / after-hours toggles. Reads GET /api/bots/:channel and saves to
  * PUT /api/bots/:channel. This is the customer's per-channel training config.
  */
-export function BotSettings({ channel, extra }) {
+export function BotSettings({ channel, extra, showToggles = true, showLanguage = false, greetingKey = 'greet', title = 'agent_beh', save: saveFn, load: loadFn }) {
   const { t } = useLang()
   const toast = useToast()
   const [b, setB] = useState({
     auto_reply: true, human_handoff: true, after_hours_only: false,
-    greeting: '', tone: 'friendly',
+    greeting: '', tone: 'friendly', language: 'auto',
   })
 
   useEffect(() => {
-    apiGet(`/bots/${channel}`)
-      .then((row) => row && setB((s) => ({ ...s, ...row })))
-      .catch(() => {})
+    const p = loadFn ? loadFn() : apiGet(`/bots/${channel}`)
+    p.then((row) => row && setB((s) => ({ ...s, ...row }))).catch(() => {})
   }, [channel])
 
   const set = (k, v) => setB((s) => ({ ...s, [k]: v }))
 
   async function save() {
     try {
-      await apiPut(`/bots/${channel}`, b)
+      await (saveFn ? saveFn(b) : apiPut(`/bots/${channel}`, b))
       toast()
     } catch {
       toast(t('save_failed'))
@@ -142,14 +141,18 @@ export function BotSettings({ channel, extra }) {
 
   return (
     <div className="card">
-      <h3><Icon name="bot" /><T k="agent_beh" /></h3>
-      <div className="row"><div><b><T k="auto_re" /></b><p><T k="auto_rep" /></p></div>
-        <Switch checked={!!b.auto_reply} onChange={(v) => set('auto_reply', v)} /></div>
-      <div className="row"><div><b><T k="handoff" /></b><p><T k="handoffp" /></p></div>
-        <Switch checked={!!b.human_handoff} onChange={(v) => set('human_handoff', v)} /></div>
-      <div className="row"><div><b><T k="ooh" /></b><p><T k="oohp" /></p></div>
-        <Switch checked={!!b.after_hours_only} onChange={(v) => set('after_hours_only', v)} /></div>
-      <div className="field" style={{ marginTop: 14 }}><label><T k="greet" /></label>
+      <h3><Icon name="bot" /><T k={title} /></h3>
+      {showToggles && (
+        <>
+          <div className="row"><div><b><T k="auto_re" /></b><p><T k="auto_rep" /></p></div>
+            <Switch checked={!!b.auto_reply} onChange={(v) => set('auto_reply', v)} /></div>
+          <div className="row"><div><b><T k="handoff" /></b><p><T k="handoffp" /></p></div>
+            <Switch checked={!!b.human_handoff} onChange={(v) => set('human_handoff', v)} /></div>
+          <div className="row"><div><b><T k="ooh" /></b><p><T k="oohp" /></p></div>
+            <Switch checked={!!b.after_hours_only} onChange={(v) => set('after_hours_only', v)} /></div>
+        </>
+      )}
+      <div className="field" style={{ marginTop: 14 }}><label><T k={greetingKey} /></label>
         <textarea rows="2" value={b.greeting || ''} onChange={(e) => set('greeting', e.target.value)} />
       </div>
       <div className="field"><label><T k="tone" /></label>
@@ -159,6 +162,19 @@ export function BotSettings({ channel, extra }) {
           <option value="playful">{t('tn3')}</option>
         </select>
       </div>
+      {showLanguage && (
+        <div className="field"><label><T k="vc_lang" /></label>
+          <select value={b.language || 'auto'} onChange={(e) => set('language', e.target.value)}>
+            <option value="auto">{t('vc_lang_auto')}</option>
+            <option value="en">English</option>
+            <option value="ar">العربية</option>
+            <option value="hi">हिन्दी (Hindi)</option>
+            <option value="ur">اردو (Urdu)</option>
+            <option value="fr">Français</option>
+          </select>
+          <div className="hint" style={{ marginTop: 6 }}><T k="vc_lang_hint" /></div>
+        </div>
+      )}
       {extra}
       <button className="btn btn-g" onClick={save}><Icon name="save" size={16} /><T k="save" /></button>
     </div>

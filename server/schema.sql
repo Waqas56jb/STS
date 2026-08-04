@@ -170,12 +170,31 @@ create table if not exists sts_call_logs (
   id           uuid primary key default gen_random_uuid(),
   business_id  uuid references sts_businesses(id) on delete cascade,
   caller       text,
-  direction    text default 'inbound',
+  direction    text default 'inbound',                 -- inbound | outbound
   duration_sec int default 0,
   transcript   text,
   summary      text,
+  from_number  text,
+  to_number    text,
+  status       text default 'initiated',               -- initiated | ringing | in_progress | completed | failed | no_answer
+  provider_call_sid text,                               -- Twilio CallSid
+  transcript_json jsonb default '[]'::jsonb,            -- [{role:'user'|'agent', text, at}]
+  language     text,
+  started_at   timestamptz,
+  ended_at     timestamptz,
   created_at   timestamptz default now()
 );
+-- voice-agent columns for already-created databases (idempotent)
+alter table sts_call_logs add column if not exists from_number text;
+alter table sts_call_logs add column if not exists to_number text;
+alter table sts_call_logs add column if not exists status text default 'initiated';
+alter table sts_call_logs add column if not exists provider_call_sid text;
+alter table sts_call_logs add column if not exists transcript_json jsonb default '[]'::jsonb;
+alter table sts_call_logs add column if not exists language text;
+alter table sts_call_logs add column if not exists started_at timestamptz;
+alter table sts_call_logs add column if not exists ended_at timestamptz;
+create index if not exists idx_sts_call_business on sts_call_logs(business_id, created_at desc);
+create unique index if not exists idx_sts_call_sid on sts_call_logs(provider_call_sid);
 
 -- ---------- leads ----------
 create table if not exists sts_leads (

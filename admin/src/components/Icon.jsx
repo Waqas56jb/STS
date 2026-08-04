@@ -16,7 +16,7 @@ import {
   PhoneCall, PhoneIncoming, PhoneOutgoing, PieChart, Play, PlugZap, Plus,
   Receipt, Save, Send, Settings, Shield, ShieldCheck, Sparkles, Target, Timer,
   TrendingUp, Trash2, Trophy, Twitter, UploadCloud, User, UserCheck, UserPlus, Users,
-  Wrench, X, XCircle, Zap,
+  Webhook, Wrench, X, XCircle, Zap,
 } from 'lucide-react'
 
 const MAP = {
@@ -90,6 +90,7 @@ const MAP = {
   timer: Timer,
   'trending-up': TrendingUp,
   'trash-2': Trash2,
+  webhook: Webhook,
   twitter: Twitter,
   'upload-cloud': UploadCloud,
   users: Users,
