@@ -1,23 +1,67 @@
 import WebSocket from 'ws'
 import { pool, one, many } from '../db.js'
 import { resolveOpenAIKey } from './ai.js'
+import { decryptJSON } from './crypto.js'
 
 /**
- * Voice agent = Twilio phone line ⇄ OpenAI Realtime API (speech-to-speech).
+ * Voice agent = Twilio phone line ⇄ OpenAI Realtime API.
  *
  * Twilio streams the caller's audio (G.711 μ-law 8kHz) over a WebSocket
- * (Media Streams). We relay it to OpenAI's Realtime API, which does STT + LLM
- * + TTS in one pipeline (multilingual, low-latency, interruptible), and relay
- * its audio back to Twilio. Transcripts are captured per turn and saved to
- * sts_call_logs. Only OpenAI is used — no other STT/TTS provider.
+ * (Media Streams). OpenAI's Realtime API does STT + LLM (multilingual,
+ * interruptible). For the spoken VOICE there are two providers, chosen per
+ * business via the voice connection's `voice_provider`:
+ *   - 'standard'  → OpenAI Realtime's own TTS audio (default)
+ *   - 'elevenlabs'→ OpenAI runs in text mode; the reply text is streamed to
+ *                   ElevenLabs (μ-law 8kHz) for a more natural voice.
+ * Transcripts are captured per turn and saved to sts_call_logs.
  *
- * NOTE: this needs a persistent WebSocket host (Render/Railway/VPS) — it will
- * NOT run on Vercel serverless.
+ * NOTE: needs a persistent WebSocket host (Railway/Render/VPS) — not Vercel.
  */
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-4o-realtime-preview-2024-12-17'
 const REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${REALTIME_MODEL}`
 const VOICE = process.env.OPENAI_REALTIME_VOICE || 'alloy'
 const SUMMARY_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+// ElevenLabs (per-business key/voice come from the voice connection)
+const ELEVEN_MODEL = process.env.ELEVEN_MODEL || 'eleven_turbo_v2_5' // multilingual + low latency
+const ELEVEN_DEFAULT_VOICE = process.env.ELEVEN_DEFAULT_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'
+
+/** Decrypted voice-channel credentials (Twilio + optional ElevenLabs) for a business. */
+async function getVoiceCreds(businessId) {
+  const row = await one(`select secrets_enc from sts_channel_configs where business_id=$1 and channel='voice'`, [businessId])
+  if (!row) return {}
+  try { return decryptJSON(row.secrets_enc) || {} } catch { return {} }
+}
+
+/**
+ * Stream ElevenLabs TTS for `text` straight to Twilio as μ-law 8kHz media.
+ * Returns an AbortController so the caller can cut it off on barge-in.
+ */
+function speakWithEleven({ apiKey, voiceId, text, streamSid, twilioWs }) {
+  const controller = new AbortController()
+  ;(async () => {
+    try {
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId || ELEVEN_DEFAULT_VOICE}/stream?output_format=ulaw_8000&optimize_streaming_latency=3`,
+        {
+          method: 'POST',
+          headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, model_id: ELEVEN_MODEL, voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
+          signal: controller.signal,
+        },
+      )
+      if (!res.ok || !res.body) { console.error('ElevenLabs TTS failed:', res.status, await res.text().catch(() => '')); return }
+      const reader = res.body.getReader()
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value?.length && streamSid && twilioWs.readyState === WebSocket.OPEN) {
+          twilioWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload: Buffer.from(value).toString('base64') } }))
+        }
+      }
+    } catch (e) { if (e.name !== 'AbortError') console.error('ElevenLabs stream error:', e.message) }
+  })()
+  return controller
+}
 
 const LANG_NAME = {
   ar: 'Arabic', en: 'English', hi: 'Hindi', ur: 'Urdu', fr: 'French',
@@ -113,10 +157,14 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
   let toNum = null
   let openaiWs = null
   let closed = false
+  let vc = {}            // voice connection creds (Twilio + ElevenLabs)
+  let useEleven = false  // ElevenLabs voice instead of OpenAI's own
+  let elevenAbort = null // in-flight ElevenLabs TTS (for barge-in)
   const turns = []
   const startedAt = new Date()
 
   const sendTwilio = (obj) => { if (twilioWs.readyState === WebSocket.OPEN) twilioWs.send(JSON.stringify(obj)) }
+  const stopEleven = () => { try { elevenAbort?.abort() } catch { /* ignore */ } elevenAbort = null }
 
   twilioWs.on('message', async (raw) => {
     let msg
@@ -129,6 +177,8 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
       direction = p.direction || 'inbound'
       fromNum = p.from || null
       toNum = p.to || null
+      vc = businessId ? await getVoiceCreds(businessId) : {}
+      useEleven = vc.voice_provider === 'elevenlabs' && !!vc.elevenlabs_api_key
       await openOpenAI()
     } else if (msg.event === 'media') {
       if (openaiWs?.readyState === WebSocket.OPEN) {
@@ -152,7 +202,8 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
       openaiWs.send(JSON.stringify({
         type: 'session.update',
         session: {
-          modalities: ['audio', 'text'],
+          // ElevenLabs path: OpenAI returns TEXT only (we voice it via ElevenLabs)
+          modalities: useEleven ? ['text'] : ['audio', 'text'],
           instructions,
           voice: VOICE,
           input_audio_format: 'g711_ulaw',
@@ -175,19 +226,30 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
 
   function handleOpenAI(ev) {
     switch (ev.type) {
+      // ---- OpenAI's own voice (standard) ----
       case 'response.audio.delta':
-        if (streamSid && ev.delta) sendTwilio({ event: 'media', streamSid, media: { payload: ev.delta } })
+        if (!useEleven && streamSid && ev.delta) sendTwilio({ event: 'media', streamSid, media: { payload: ev.delta } })
         break
+      case 'response.audio_transcript.done':
+        if (!useEleven && ev.transcript?.trim()) turns.push({ role: 'agent', text: ev.transcript.trim(), at: new Date().toISOString() })
+        break
+      // ---- ElevenLabs voice (text → ElevenLabs → Twilio) ----
+      case 'response.text.done':
+        if (useEleven && ev.text?.trim()) {
+          turns.push({ role: 'agent', text: ev.text.trim(), at: new Date().toISOString() })
+          stopEleven()
+          elevenAbort = speakWithEleven({ apiKey: vc.elevenlabs_api_key, voiceId: vc.elevenlabs_voice_id, text: ev.text.trim(), streamSid, twilioWs })
+        }
+        break
+      // ---- common ----
       case 'input_audio_buffer.speech_started':
-        // barge-in: stop the agent's current audio on Twilio + cancel the response
+        // barge-in: stop the agent's audio (both providers) + cancel the response
         if (streamSid) sendTwilio({ event: 'clear', streamSid })
+        stopEleven()
         if (openaiWs?.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: 'response.cancel' }))
         break
       case 'conversation.item.input_audio_transcription.completed':
         if (ev.transcript?.trim()) turns.push({ role: 'user', text: ev.transcript.trim(), at: new Date().toISOString() })
-        break
-      case 'response.audio_transcript.done':
-        if (ev.transcript?.trim()) turns.push({ role: 'agent', text: ev.transcript.trim(), at: new Date().toISOString() })
         break
       case 'error':
         console.error('OpenAI RT event error:', JSON.stringify(ev.error || ev))
@@ -198,6 +260,7 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
   async function finish() {
     if (closed) return
     closed = true
+    stopEleven()
     try { if (openaiWs?.readyState === WebSocket.OPEN) openaiWs.close() } catch { /* ignore */ }
     try { if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close() } catch { /* ignore */ }
     if (!businessId || !callSid) return
