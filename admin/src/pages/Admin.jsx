@@ -10,7 +10,7 @@ import {
 } from './admin/Views'
 import { ConnectionModal } from './admin/ConnectionModal'
 import { CredentialModal } from './admin/CredentialModal'
-import { VoiceAgent } from './admin/VoiceAgent'
+import { StsAgents } from './admin/StsAgents'
 
 const LOGO = import.meta.env.BASE_URL + 'logo.png'
 
@@ -23,13 +23,13 @@ const NAV = [
   { v: 'invoices', icon: 'receipt', label: 'n_inv' },
   { v: 'plans', icon: 'package', label: 'n_plans' },
   { v: 'analytics', icon: 'bar-chart-3', label: 'n_an' },
-  { v: 'voice', icon: 'phone-call', label: 'n_voice' },
+  { v: 'agents', icon: 'bot', label: 'n_agents' },
   { v: 'settings', icon: 'settings', label: 'n_set' },
 ]
 
 const TITLES = {
   overview: 'n_over', requests: 'n_req', users: 'n_users', payments: 'n_pay',
-  invoices: 'n_inv', plans: 'n_plans', analytics: 'n_an', voice: 'n_voice', settings: 'n_set',
+  invoices: 'n_inv', plans: 'n_plans', analytics: 'n_an', agents: 'n_agents', settings: 'n_set',
 }
 
 function AdminInner({ onLogout }) {
@@ -134,7 +134,7 @@ function AdminInner({ onLogout }) {
       case 'invoices': return <Invoices />
       case 'plans': return <Plans />
       case 'analytics': return <Analytics analytics={analytics} />
-      case 'voice': return <VoiceAgent />
+      case 'agents': return <StsAgents />
       case 'settings': return <Settings />
       default: return <Overview summary={summary} analytics={analytics} />
     }

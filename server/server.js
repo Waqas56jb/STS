@@ -1062,6 +1062,53 @@ app.delete('/api/admin/voice/knowledge/:id', auth, adminOnly, wrap(async (req, r
   res.json({ ok: true })
 }))
 
+/* ---------- ADMIN: STS's OWN agents (any channel) on the STS Official business ---------- */
+// The admin configures + trains STS's own WhatsApp / Instagram / Voice agents here,
+// exactly like a customer does for their business.
+app.get('/api/admin/agent/context', auth, adminOnly, wrap(async (req, res) => {
+  res.json({
+    business_id: await platformBusinessId(),
+    spec: CONNECTION_SPEC,
+    whatsapp: { callback_url: `${voiceBase(req)}/api/webhooks/whatsapp`, verify_token: process.env.WHATSAPP_VERIFY_TOKEN || '' },
+    voice: voiceWebhookInfo(voiceBase(req)),
+  })
+}))
+
+app.get('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req, res) => {
+  if (!CHANNELS.includes(req.params.channel)) return res.status(400).json({ error: 'Unknown channel' })
+  const conns = await connectionsFor(await platformBusinessId(), true)
+  res.json(conns.find((c) => c.channel === req.params.channel))
+}))
+app.put('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req, res) => {
+  if (!CHANNELS.includes(req.params.channel)) return res.status(400).json({ error: 'Unknown channel' })
+  const connected = await saveChannelConnection(await platformBusinessId(), req.params.channel, req.body?.fields || {})
+  res.json({ ok: true, connected })
+}))
+app.delete('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req, res) => {
+  if (!CHANNELS.includes(req.params.channel)) return res.status(400).json({ error: 'Unknown channel' })
+  await pool.query(`delete from sts_channel_configs where business_id=$1 and channel=$2`, [await platformBusinessId(), req.params.channel])
+  res.json({ ok: true })
+}))
+
+app.get('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) => {
+  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [await platformBusinessId(), req.params.channel])
+  res.json(row || { channel: req.params.channel, auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto' })
+}))
+app.put('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) => {
+  const pid = await platformBusinessId()
+  const b = req.body || {}
+  const row = await one(
+    `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8, now())
+     on conflict (business_id, channel) do update set
+       auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
+       greeting=excluded.greeting, tone=excluded.tone, language=excluded.language, updated_at=now()
+     returning *`,
+    [pid, req.params.channel, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false, b.greeting || '', b.tone || 'friendly', b.language || 'auto'],
+  )
+  res.json(row)
+}))
+
 /* ================================================================
  * START (HTTP + WebSocket for Twilio Media Streams)
  * ============================================================== */
