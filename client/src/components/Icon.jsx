@@ -16,7 +16,7 @@ import {
   Menu, MessageCircle, MessageSquare, MessagesSquare, Package, Pause, Pencil,
   PhoneCall, PhoneIncoming, PhoneOutgoing, PieChart, Play, PlugZap, Plus,
   Receipt, Save, Send, Settings, Shield, ShieldCheck, Sparkles, Target, Timer,
-  TrendingUp, Trophy, Twitter, UploadCloud, User, UserCheck, UserPlus, Users,
+  TrendingUp, Trash2, Trophy, Twitter, UploadCloud, User, UserCheck, UserPlus, Users,
   Wrench, X, XCircle, Zap,
 } from 'lucide-react'
 
@@ -56,6 +56,7 @@ const MAP = {
   'eye-off': EyeOff,
   copy: Copy,
   webhook: Webhook,
+  'trash-2': Trash2,
   'file-audio': FileAudio,
   'file-spreadsheet': FileSpreadsheet,
   'file-text': FileText,

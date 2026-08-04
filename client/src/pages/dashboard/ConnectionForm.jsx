@@ -1,18 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { T, useLang } from '../../i18n/LangContext'
-import { apiGet, apiPut } from '../../lib/api'
+import { apiGet, apiPut, apiDelete } from '../../lib/api'
 import { Switch, useToast } from './ui'
 
 /**
  * Spec-driven credential form for one channel (whatsapp / instagram / voice).
  *
- * The customer enters their OWN connection keys here — WhatsApp (Meta),
- * Instagram (Meta) or Twilio (voice). The field layout comes from
- * GET /api/connection-spec, current values from GET /api/me/connections
- * (masked), and saving hits PUT /api/me/connections/:channel. Secret fields
- * render blank with the masked value as a placeholder; leaving one blank keeps
- * the stored secret (the server merges), so a live connection never breaks.
+ * The customer enters their OWN connection keys here (WhatsApp/Instagram/Twilio).
+ * Saved credentials are stored ENCRYPTED in the DB and persist across refresh /
+ * reopen — GET /api/me/connections returns the real stored values so the form
+ * pre-fills them (secrets hidden behind an eye toggle) and they stay visible and
+ * editable until the user changes or disconnects them.
  */
 export function ConnectionForm({ channel }) {
   const { isAr } = useLang()
@@ -20,6 +19,7 @@ export function ConnectionForm({ channel }) {
   const [spec, setSpec] = useState(null)
   const [current, setCurrent] = useState(null)
   const [form, setForm] = useState({})
+  const [shown, setShown] = useState({}) // which secret fields are revealed
   const [saving, setSaving] = useState(false)
 
   const load = () =>
@@ -32,17 +32,16 @@ export function ConnectionForm({ channel }) {
 
   useEffect(() => { load() }, [channel])
 
-  // reset form to non-secret values; secrets stay blank (shown as masked placeholder)
+  // pre-fill EVERY field (incl. secrets) with the saved values so they persist + are editable
   useEffect(() => {
     if (!spec || !spec[channel]) return
     const f = {}
-    for (const field of spec[channel].fields) {
-      f[field.key] = field.secret ? '' : current?.fields?.[field.key] || ''
-    }
+    for (const field of spec[channel].fields) f[field.key] = current?.fields?.[field.key] || ''
     setForm(f)
   }, [spec, current, channel])
 
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }))
+  const toggle = (k) => setShown((s) => ({ ...s, [k]: !s[k] }))
   const connected = current?.connected
 
   async function save() {
@@ -57,6 +56,17 @@ export function ConnectionForm({ channel }) {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function disconnect() {
+    if (!window.confirm(isAr ? 'حذف بيانات الاتصال؟' : 'Delete these connection credentials?')) return
+    try {
+      await apiDelete(`/me/connections/${channel}`)
+      const cs = await apiGet('/me/connections')
+      setCurrent(cs.find((c) => c.channel === channel) || null)
+      setForm({})
+      toast(isAr ? 'تم الحذف' : 'Disconnected')
+    } catch { toast(isAr ? 'فشل الحذف' : 'Delete failed') }
   }
 
   if (!spec || !spec[channel]) {
@@ -90,22 +100,39 @@ export function ConnectionForm({ channel }) {
               <option value="">—</option>
               {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
+          ) : field.secret ? (
+            <div style={{ position: 'relative' }}>
+              <input
+                type={shown[field.key] ? 'text' : 'password'}
+                value={form[field.key] || ''}
+                onChange={(e) => set(field.key, e.target.value)}
+                placeholder={isAr ? 'أدخل القيمة' : 'enter value'}
+                autoComplete="off"
+                style={{ paddingInlineEnd: 42 }}
+              />
+              <button type="button" onClick={() => toggle(field.key)} tabIndex={-1}
+                aria-label={shown[field.key] ? 'Hide' : 'Show'}
+                style={{ position: 'absolute', insetInlineEnd: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 0, padding: 4, cursor: 'pointer', color: 'var(--mut)', display: 'flex' }}>
+                <Icon name={shown[field.key] ? 'eye-off' : 'eye'} size={17} />
+              </button>
+            </div>
           ) : (
-            <input
-              type={field.secret ? 'password' : 'text'}
-              value={form[field.key] || ''}
-              onChange={(e) => set(field.key, e.target.value)}
-              placeholder={field.secret ? current?.fields?.[field.key] || (isAr ? 'أدخل القيمة' : 'enter value') : ''}
-              autoComplete="off"
-            />
+            <input type="text" value={form[field.key] || ''} onChange={(e) => set(field.key, e.target.value)} autoComplete="off" />
           )}
         </div>
       ))}
 
-      <button className="btn btn-g" style={{ marginTop: 6 }} onClick={save} disabled={saving}>
-        <Icon name="save" size={16} />{saving ? <T k="saving" /> : <T k="conn_save" />}
-      </button>
-      <div className="hint" style={{ marginTop: 10 }}><T k="conn_hint" /></div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button className="btn btn-g" style={{ flex: 1, justifyContent: 'center' }} onClick={save} disabled={saving}>
+          <Icon name="save" size={16} />{saving ? <T k="saving" /> : <T k="conn_save" />}
+        </button>
+        {connected && (
+          <button className="btn btn-o" onClick={disconnect} title={isAr ? 'حذف' : 'Disconnect'}>
+            <Icon name="trash-2" size={15} />
+          </button>
+        )}
+      </div>
+      <div className="hint" style={{ marginTop: 10 }}><T k="conn_saved_hint" /></div>
     </div>
   )
 }

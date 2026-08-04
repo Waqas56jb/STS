@@ -41,20 +41,23 @@ function VoiceConnection() {
   const [spec, setSpec] = useState(null)
   const [current, setCurrent] = useState(null)
   const [form, setForm] = useState({})
+  const [shown, setShown] = useState({})
   const [saving, setSaving] = useState(false)
 
   const load = () => Promise.all([apiGet('/admin/connection-spec'), apiGet('/admin/voice/connection')])
     .then(([sp, cur]) => { setSpec(sp.voice); setCurrent(cur) }).catch(() => {})
   useEffect(() => { load() }, [])
 
+  // pre-fill ALL saved fields (incl. secrets) so they persist + stay editable
   useEffect(() => {
     if (!spec) return
     const f = {}
-    for (const field of spec.fields) f[field.key] = field.secret ? '' : current?.fields?.[field.key] || ''
+    for (const field of spec.fields) f[field.key] = current?.fields?.[field.key] || ''
     setForm(f)
   }, [spec, current])
 
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }))
+  const toggle = (k) => setShown((s) => ({ ...s, [k]: !s[k] }))
   async function save() {
     setSaving(true)
     try {
@@ -62,6 +65,11 @@ function VoiceConnection() {
       const cur = await apiGet('/admin/voice/connection'); setCurrent(cur)
       toast(r.connected ? (isAr ? 'تم الحفظ — متصل ✓' : 'Saved — connected ✓') : (isAr ? 'تم الحفظ ✓' : 'Saved ✓'))
     } catch { toast(isAr ? 'فشل الحفظ' : 'Save failed') } finally { setSaving(false) }
+  }
+  async function disconnect() {
+    if (!window.confirm(isAr ? 'حذف بيانات الاتصال؟' : 'Delete these credentials?')) return
+    try { await apiDelete('/admin/voice/connection'); const cur = await apiGet('/admin/voice/connection'); setCurrent(cur); setForm({}); toast(isAr ? 'تم الحذف' : 'Disconnected') }
+    catch { toast(isAr ? 'فشل الحذف' : 'Delete failed') }
   }
   if (!spec) return <div className="card"><h3><Icon name="plug-zap" />{isAr ? 'اتصال الصوت' : 'Voice connection'}</h3></div>
 
@@ -80,15 +88,28 @@ function VoiceConnection() {
             <select value={form[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}>
               <option value="">—</option>{f.options.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
+          ) : f.secret ? (
+            <div style={{ position: 'relative' }}>
+              <input type={shown[f.key] ? 'text' : 'password'} value={form[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}
+                placeholder={isAr ? 'أدخل القيمة' : 'enter value'} autoComplete="off" style={{ paddingInlineEnd: 42 }} />
+              <button type="button" onClick={() => toggle(f.key)} tabIndex={-1}
+                style={{ position: 'absolute', insetInlineEnd: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 0, padding: 4, cursor: 'pointer', color: 'var(--mut)', display: 'flex' }}>
+                <Icon name={shown[f.key] ? 'eye-off' : 'eye'} size={17} />
+              </button>
+            </div>
           ) : (
-            <input type={f.secret ? 'password' : 'text'} value={form[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}
-              placeholder={f.secret ? (current?.fields?.[f.key] || (isAr ? 'أدخل القيمة' : 'enter value')) : ''} autoComplete="off" />
+            <input type="text" value={form[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} autoComplete="off" />
           )}
         </div>
       ))}
-      <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center' }} onClick={save} disabled={saving}>
-        <Icon name="save" size={16} />{saving ? '…' : (isAr ? 'حفظ الاتصال' : 'Save connection')}
-      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-g" style={{ flex: 1, justifyContent: 'center' }} onClick={save} disabled={saving}>
+          <Icon name="save" size={16} />{saving ? '…' : (isAr ? 'حفظ الاتصال' : 'Save connection')}
+        </button>
+        {current?.connected && (
+          <button className="btn btn-o" onClick={disconnect} title={isAr ? 'حذف' : 'Disconnect'}><Icon name="trash-2" size={15} /></button>
+        )}
+      </div>
     </div>
   )
 }

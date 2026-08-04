@@ -445,7 +445,7 @@ app.delete('/api/knowledge/:id', auth, wrap(async (req, res) => {
 
 // Client-visible connection status (read-only, masked)
 app.get('/api/me/connections', auth, wrap(async (req, res) => {
-  res.json(await connectionsFor(biz(req)))
+  res.json(await connectionsFor(biz(req), true))
 }))
 
 /* ================================================================
@@ -752,13 +752,20 @@ app.put('/api/me/connections/:channel', auth, wrap(async (req, res) => {
   res.json({ ok: true, connected })
 }))
 
+app.delete('/api/me/connections/:channel', auth, wrap(async (req, res) => {
+  const { channel } = req.params
+  if (!CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' })
+  await pool.query(`delete from sts_channel_configs where business_id=$1 and channel=$2`, [biz(req), channel])
+  res.json({ ok: true })
+}))
+
 // ADMIN: manage any business's connections
 app.get('/api/admin/connection-spec', auth, adminOnly, wrap(async (_req, res) => {
   res.json(CONNECTION_SPEC)
 }))
 
 app.get('/api/admin/businesses/:id/connections', auth, adminOnly, wrap(async (req, res) => {
-  res.json(await connectionsFor(req.params.id))
+  res.json(await connectionsFor(req.params.id, true))
 }))
 
 app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(async (req, res) => {
@@ -796,17 +803,24 @@ app.delete('/api/admin/knowledge/:id', auth, adminOnly, wrap(async (req, res) =>
 }))
 
 /** Build masked connection status for all channels of a business. */
-async function connectionsFor(businessId) {
+/**
+ * Masked connection status for all channels of a business.
+ * `reveal=true` returns the real decrypted values (so the owner/admin can SEE
+ * and EDIT their saved credentials in the form — they persist in the DB until
+ * the user changes them). `reveal=false` masks secrets for read-only views.
+ */
+async function connectionsFor(businessId, reveal = false) {
   const rows = await many(`select channel, connected, secrets_enc, updated_at from sts_channel_configs where business_id=$1`, [businessId])
   const byCh = {}
   rows.forEach((r) => (byCh[r.channel] = r))
   return CHANNELS.map((channel) => {
     const row = byCh[channel]
-    const creds = row ? decryptJSON(row.secrets_enc) : {}
+    let creds = {}
+    try { creds = row ? decryptJSON(row.secrets_enc) : {} } catch { creds = {} }
     return {
       channel,
       connected: row?.connected || false,
-      fields: maskCredentials(creds),
+      fields: reveal ? creds : maskCredentials(creds),
       updated_at: row?.updated_at || null,
     }
   })
@@ -954,12 +968,16 @@ app.get('/api/admin/voice/context', auth, adminOnly, wrap(async (req, res) => {
   res.json({ business_id: await platformBusinessId(), ...voiceWebhookInfo(voiceBase(req)) })
 }))
 app.get('/api/admin/voice/connection', auth, adminOnly, wrap(async (_req, res) => {
-  const conns = await connectionsFor(await platformBusinessId())
+  const conns = await connectionsFor(await platformBusinessId(), true)
   res.json(conns.find((c) => c.channel === 'voice'))
 }))
 app.put('/api/admin/voice/connection', auth, adminOnly, wrap(async (req, res) => {
   const connected = await saveChannelConnection(await platformBusinessId(), 'voice', req.body?.fields || {})
   res.json({ ok: true, connected })
+}))
+app.delete('/api/admin/voice/connection', auth, adminOnly, wrap(async (_req, res) => {
+  await pool.query(`delete from sts_channel_configs where business_id=$1 and channel='voice'`, [await platformBusinessId()])
+  res.json({ ok: true })
 }))
 app.post('/api/admin/voice/dial', auth, adminOnly, wrap(async (req, res) => {
   try {
