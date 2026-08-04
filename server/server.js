@@ -415,19 +415,25 @@ app.put('/api/bots/:channel', auth, wrap(async (req, res) => {
   res.json(row)
 }))
 
-// Knowledge base
+// Knowledge base (per-agent scoped via `channel`; 'all' = shared)
+const KB_CHANNELS = ['all', 'whatsapp', 'instagram', 'website', 'voice']
+const kbChannel = (c) => (KB_CHANNELS.includes(c) ? c : 'all')
+
 app.get('/api/knowledge', auth, wrap(async (req, res) => {
-  const rows = await many(`select id, type, title, meta, source_url, status, created_at from sts_knowledge_sources where business_id=$1 order by created_at desc`, [biz(req)])
-  res.json(rows)
+  const params = [biz(req)]
+  let sql = `select id, type, title, meta, source_url, status, channel, created_at from sts_knowledge_sources where business_id=$1`
+  if (req.query.channel && KB_CHANNELS.includes(req.query.channel)) { params.push(req.query.channel); sql += ` and channel=$2` }
+  sql += ` order by created_at desc`
+  res.json(await many(sql, params))
 }))
 
 app.post('/api/knowledge', auth, wrap(async (req, res) => {
-  const { type, title, content, source_url, meta } = req.body || {}
+  const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
-    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, status)
-     values ($1,$2,$3,$4,$5,$6,'trained') returning id, type, title, meta, source_url, status, created_at`,
-    [biz(req), type || 'qa', title, content || null, source_url || null, meta || null],
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
+     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning id, type, title, meta, source_url, status, channel, created_at`,
+    [biz(req), type || 'qa', title, content || null, source_url || null, meta || null, kbChannel(channel)],
   )
   res.status(201).json(row)
 }))
@@ -766,20 +772,20 @@ app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(
 
 /* ---------- ADMIN: per-business knowledge base (chatbot training) ---------- */
 app.get('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req, res) => {
-  const rows = await many(
-    `select id, type, title, meta, source_url, status, created_at from sts_knowledge_sources where business_id=$1 order by created_at desc`,
-    [req.params.id],
-  )
-  res.json(rows)
+  const params = [req.params.id]
+  let sql = `select id, type, title, meta, source_url, status, channel, created_at from sts_knowledge_sources where business_id=$1`
+  if (req.query.channel && KB_CHANNELS.includes(req.query.channel)) { params.push(req.query.channel); sql += ` and channel=$2` }
+  sql += ` order by created_at desc`
+  res.json(await many(sql, params))
 }))
 
 app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req, res) => {
-  const { type, title, content, source_url, meta } = req.body || {}
+  const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
-    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, status)
-     values ($1,$2,$3,$4,$5,$6,'trained') returning id, type, title, meta, source_url, status, created_at`,
-    [req.params.id, type || 'qa', title, content || null, source_url || null, meta || null],
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
+     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning id, type, title, meta, source_url, status, channel, created_at`,
+    [req.params.id, type || 'qa', title, content || null, source_url || null, meta || null, kbChannel(channel)],
   )
   res.status(201).json(row)
 }))
@@ -987,16 +993,17 @@ app.put('/api/admin/voice/bot', auth, adminOnly, wrap(async (req, res) => {
 }))
 app.get('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (_req, res) => {
   const pid = await platformBusinessId()
-  res.json(await many(`select id, type, title, meta, source_url, status, created_at from sts_knowledge_sources where business_id=$1 order by created_at desc`, [pid]))
+  // the voice agent uses its own 'voice' entries + anything shared as 'all'
+  res.json(await many(`select id, type, title, meta, source_url, status, channel, created_at from sts_knowledge_sources where business_id=$1 and channel in ('all','voice') order by created_at desc`, [pid]))
 }))
 app.post('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) => {
   const pid = await platformBusinessId()
-  const { type, title, content, source_url, meta } = req.body || {}
+  const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
-    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, status)
-     values ($1,$2,$3,$4,$5,$6,'trained') returning id, type, title, meta, source_url, status, created_at`,
-    [pid, type || 'qa', title, content || null, source_url || null, meta || null],
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
+     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning id, type, title, meta, source_url, status, channel, created_at`,
+    [pid, type || 'qa', title, content || null, source_url || null, meta || null, channel === 'all' ? 'all' : 'voice'],
   )
   res.status(201).json(row)
 }))

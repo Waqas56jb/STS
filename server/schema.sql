@@ -128,9 +128,13 @@ create table if not exists sts_knowledge_sources (
   source_url  text,
   meta        text,
   status      text default 'processing',              -- processing | trained | failed
+  channel     text default 'all',                     -- all | whatsapp | instagram | website | voice
   created_at  timestamptz default now()
 );
 create index if not exists idx_sts_kb_business on sts_knowledge_sources(business_id);
+-- per-agent knowledge scoping ('all' = shared across every agent)
+alter table sts_knowledge_sources add column if not exists channel text default 'all';
+create index if not exists idx_sts_kb_channel on sts_knowledge_sources(business_id, channel);
 
 -- ---------- conversations & messages ----------
 create table if not exists sts_conversations (

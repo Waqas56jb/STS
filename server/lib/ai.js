@@ -55,7 +55,8 @@ function buildSystemPrompt({ businessName, bot, kb }) {
 export async function generateReply({ businessId, businessName, channel = 'whatsapp', userText, history = [] }) {
   const [bot, kb, key] = await Promise.all([
     one(`select greeting, tone, language from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, channel]),
-    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' order by created_at desc limit 40`, [businessId]),
+    // this channel's own knowledge + anything scoped to "all" (shared)
+    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='all' or channel=$2) order by created_at desc limit 40`, [businessId, channel]),
     resolveOpenAIKey(),
   ])
 

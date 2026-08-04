@@ -196,15 +196,22 @@ function VoiceKnowledge() {
   const [url, setUrl] = useState('')
   const [q, setQ] = useState('')
   const [a, setA] = useState('')
+  const [scope, setScope] = useState('voice') // 'voice' (this agent) or 'all' (shared)
   const load = () => apiGet('/admin/voice/knowledge').then(setKb).catch(() => {})
   useEffect(() => { load() }, [])
-  async function importUrl() { if (!url.trim()) return; await apiPostAuth('/admin/voice/knowledge', { type: 'url', title: url.trim(), source_url: url.trim(), meta: 'URL' }).catch(() => {}); setUrl(''); toast(isAr ? 'تمت الإضافة ✓' : 'Added ✓'); load() }
-  async function addQa() { if (!q.trim()) return; await apiPostAuth('/admin/voice/knowledge', { type: 'qa', title: q.trim(), content: a.trim(), meta: 'Q&A' }).catch(() => {}); setQ(''); setA(''); toast(isAr ? 'تم التدريب ✓' : 'Trained ✓'); load() }
+  async function importUrl() { if (!url.trim()) return; await apiPostAuth('/admin/voice/knowledge', { type: 'url', title: url.trim(), source_url: url.trim(), meta: 'URL', channel: scope }).catch(() => {}); setUrl(''); toast(isAr ? 'تمت الإضافة ✓' : 'Added ✓'); load() }
+  async function addQa() { if (!q.trim()) return; await apiPostAuth('/admin/voice/knowledge', { type: 'qa', title: q.trim(), content: a.trim(), meta: 'Q&A', channel: scope }).catch(() => {}); setQ(''); setA(''); toast(isAr ? 'تم التدريب ✓' : 'Trained ✓'); load() }
   async function remove(id) { await apiDelete(`/admin/voice/knowledge/${id}`).catch(() => {}); load() }
   return (
     <div className="grid g2">
       <div className="card">
         <h3><Icon name="brain" />{isAr ? 'تدريب المعرفة' : 'Knowledge training'}</h3>
+        <div className="field"><label>{isAr ? 'تدريب لِـ' : 'Train for'}</label>
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
+            <option value="voice">{isAr ? 'الوكيل الصوتي فقط' : 'Voice agent only'}</option>
+            <option value="all">{isAr ? 'كل الوكلاء (مشترك)' : 'All agents (shared)'}</option>
+          </select>
+        </div>
         <div className="field"><label>{isAr ? 'استيراد من رابط' : 'Import from URL'}</label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input placeholder="https://example.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
@@ -223,7 +230,10 @@ function VoiceKnowledge() {
           <div className="kb-item" key={s.id}>
             <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
             <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
-            <button className="btn btn-o" style={{ padding: '5px 9px' }} onClick={() => remove(s.id)}><Icon name="x" size={13} /></button>
+            <span className={`badge ${(s.channel || 'voice') === 'all' ? 'b-info' : 'b-ok'}`}>
+              {(s.channel || 'voice') === 'all' ? (isAr ? 'الكل' : 'ALL') : (isAr ? 'صوت' : 'VOICE')}
+            </span>
+            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => remove(s.id)}><Icon name="x" size={13} /></button>
           </div>
         ))}
         {kb.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}>{isAr ? 'لا توجد مصادر بعد.' : 'No knowledge yet.'}</div>}

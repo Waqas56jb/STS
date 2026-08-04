@@ -31,6 +31,7 @@ export function ConnectionModal({ business, onClose }) {
   const [url, setUrl] = useState('')
   const [q, setQ] = useState('')
   const [a, setA] = useState('')
+  const [scope, setScope] = useState('all') // which agent this training is for
 
   const open = Boolean(business)
 
@@ -86,14 +87,14 @@ export function ConnectionModal({ business, onClose }) {
   async function importUrl() {
     if (!url.trim()) return
     await apiPostAuth(`/admin/businesses/${business.id}/knowledge`, {
-      type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL',
+      type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL', channel: scope,
     }).catch(() => {})
     setUrl(''); toast(isAr ? 'تمت الإضافة ✓' : 'Added ✓'); loadKb()
   }
   async function addQa() {
     if (!q.trim()) return
     await apiPostAuth(`/admin/businesses/${business.id}/knowledge`, {
-      type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A',
+      type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A', channel: scope,
     }).catch(() => {})
     setQ(''); setA(''); toast(isAr ? 'تم التدريب ✓' : 'Trained ✓'); loadKb()
   }
@@ -191,6 +192,19 @@ export function ConnectionModal({ business, onClose }) {
         {mode === 'train' && (
           <>
             <div className="field">
+              <label>{isAr ? 'تدريب لِـ' : 'Train for'}</label>
+              <select value={scope} onChange={(e) => setScope(e.target.value)}>
+                <option value="all">{isAr ? 'كل الوكلاء (مشترك)' : 'All agents (shared)'}</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="instagram">Instagram</option>
+                <option value="website">{isAr ? 'الموقع' : 'Website'}</option>
+                <option value="voice">{isAr ? 'الصوت' : 'Voice'}</option>
+              </select>
+              <div className="hint" style={{ marginTop: 6 }}>
+                {isAr ? 'اختر «كل الوكلاء» للمشاركة، أو وكيلاً واحداً لتدريبه فقط.' : '“All agents” shares it; pick one to train only that agent.'}
+              </div>
+            </div>
+            <div className="field">
               <label>{isAr ? 'استيراد من رابط' : 'Import from URL'}</label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <input placeholder="https://example.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
@@ -215,7 +229,9 @@ export function ConnectionModal({ business, onClose }) {
                 <div className="kb-item" key={s.id}>
                   <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
                   <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
-                  <span className={`badge ${s.status === 'trained' ? 'b-ok' : 'b-warn'}`}>{s.status?.toUpperCase()}</span>
+                  <span className={`badge ${(s.channel || 'all') === 'all' ? 'b-info' : 'b-ok'}`}>
+                    {(s.channel || 'all') === 'all' ? (isAr ? 'الكل' : 'ALL') : (s.channel || '').toUpperCase()}
+                  </span>
                   <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => removeKb(s.id)}>
                     <Icon name="x" size={13} />
                   </button>

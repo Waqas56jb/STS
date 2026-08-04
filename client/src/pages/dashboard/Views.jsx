@@ -151,7 +151,15 @@ export function WidgetView() {
 
 /* ===================== KNOWLEDGE ===================== */
 const KB_ICON = { file: 'file-text', url: 'globe', qa: 'message-square' }
-const KB_BADGE = (st) => (st === 'trained' ? 'b-ok' : st === 'processing' ? 'b-warn' : 'b-info')
+export const KB_CHANNELS = [
+  { v: 'all', key: 'kb_ch_all', label: 'All agents' },
+  { v: 'whatsapp', label: 'WhatsApp' },
+  { v: 'instagram', label: 'Instagram' },
+  { v: 'website', label: 'Website' },
+  { v: 'voice', label: 'Voice' },
+]
+const KB_CH_BADGE = { all: 'b-info', whatsapp: 'b-ok', instagram: 'b-warn', website: 'b-info', voice: 'b-ok' }
+const chLabel = (v, t) => { const c = KB_CHANNELS.find((x) => x.v === v); return c ? (c.key ? t(c.key) : c.label) : v }
 
 export function KnowledgeView() {
   const toast = useToast()
@@ -160,37 +168,40 @@ export function KnowledgeView() {
   const [url, setUrl] = useState('')
   const [q, setQ] = useState('')
   const [a, setA] = useState('')
+  const [scope, setScope] = useState('all')   // "Train for" target
+  const [filter, setFilter] = useState('')     // "" = show all entries
 
   const load = () => apiGet('/knowledge').then(setSources).catch(() => {})
   useEffect(() => { load() }, [])
 
   async function importUrl() {
     if (!url.trim()) return
-    await apiPostAuth('/knowledge', { type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL' }).catch(() => {})
+    await apiPostAuth('/knowledge', { type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL', channel: scope }).catch(() => {})
     setUrl(''); toast(); load()
   }
   async function addQa() {
     if (!q.trim()) return
-    await apiPostAuth('/knowledge', { type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A' }).catch(() => {})
+    await apiPostAuth('/knowledge', { type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A', channel: scope }).catch(() => {})
     setQ(''); setA(''); toast(); load()
   }
-  async function remove(id) {
-    await apiDelete('/knowledge/' + id).catch(() => {})
-    load()
-  }
+  async function remove(id) { await apiDelete('/knowledge/' + id).catch(() => {}); load() }
+
+  const shown = filter ? sources.filter((s) => (s.channel || 'all') === filter) : sources
 
   return (
     <div className="grid g2">
       <div className="card">
         <h3><Icon name="upload-cloud" /><T k="kb_tr" /></h3>
-        <div className="drop" onClick={() => toast()}>
-          <Icon name="file-up" style={{ width: 30, height: 30, marginBottom: 8 }} />
-          <br /><b><T k="kb_drop" /></b><br />
-          <span style={{ fontSize: 12 }}><T k="kb_types" /></span>
+        {/* who this training is for */}
+        <div className="field"><label><T k="kb_for" /></label>
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
+            {KB_CHANNELS.map((c) => <option key={c.v} value={c.v}>{c.key ? t(c.key) : c.label}</option>)}
+          </select>
+          <div className="hint" style={{ marginTop: 6 }}><T k="kb_for_hint" /></div>
         </div>
         <div className="field"><label><T k="kb_url" /></label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input placeholder="https://alnoorperfumes.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <input placeholder="https://yoursite.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
             <button className="btn btn-p" onClick={importUrl}><T k="import" /></button>
           </div>
         </div>
@@ -201,18 +212,25 @@ export function KnowledgeView() {
         <button className="btn btn-g" onClick={addQa}><Icon name="brain" size={16} /><T k="kb_train" /></button>
       </div>
       <div className="card">
-        <h3><Icon name="library" /><T k="kb_src" /> <span className="badge b-info" style={{ marginInlineStart: 'auto' }}>{sources.length}</span></h3>
-        {sources.map((s) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <h3 style={{ margin: 0 }}><Icon name="library" /><T k="kb_src" /></h3>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ marginInlineStart: 'auto', maxWidth: 170 }}>
+            <option value="">{t('kb_view_all')}</option>
+            {KB_CHANNELS.map((c) => <option key={c.v} value={c.v}>{c.key ? t(c.key) : c.label}</option>)}
+          </select>
+          <span className="badge b-info">{shown.length}</span>
+        </div>
+        {shown.map((s) => (
           <div className="kb-item" key={s.id}>
             <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
             <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
-            <span className={`badge ${KB_BADGE(s.status)}`}>{s.status?.toUpperCase()}</span>
+            <span className={`badge ${KB_CH_BADGE[s.channel || 'all']}`}>{chLabel(s.channel || 'all', t)}</span>
             <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => remove(s.id)}>
               <Icon name="x" size={13} />
             </button>
           </div>
         ))}
-        {sources.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}>No knowledge sources yet.</div>}
+        {shown.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}><T k="kb_empty" /></div>}
       </div>
     </div>
   )
