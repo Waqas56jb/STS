@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { useAdminT } from '../../i18n/admin'
 import { apiGet, apiPut, apiPostAuth, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
+import { KbEditModal } from './KbEditModal'
 
 /**
  * Per-business channel connections + chatbot training, in one modal.
@@ -32,6 +33,7 @@ export function ConnectionModal({ business, onClose }) {
   const [q, setQ] = useState('')
   const [a, setA] = useState('')
   const [scope, setScope] = useState('all') // which agent this training is for
+  const [editingKb, setEditingKb] = useState(null)
 
   const open = Boolean(business)
 
@@ -228,11 +230,14 @@ export function ConnectionModal({ business, onClose }) {
               {kb.map((s) => (
                 <div className="kb-item" key={s.id}>
                   <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
-                  <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
+                  <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setEditingKb(s)}><b>{s.title}</b><span>{s.meta || ''}</span></div>
                   <span className={`badge ${(s.channel || 'all') === 'all' ? 'b-info' : 'b-ok'}`}>
                     {(s.channel || 'all') === 'all' ? (isAr ? 'الكل' : 'ALL') : (s.channel || '').toUpperCase()}
                   </span>
-                  <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => removeKb(s.id)}>
+                  <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => setEditingKb(s)}>
+                    <Icon name="pencil" size={13} />
+                  </button>
+                  <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 6 }} onClick={() => removeKb(s.id)}>
                     <Icon name="x" size={13} />
                   </button>
                 </div>
@@ -246,6 +251,20 @@ export function ConnectionModal({ business, onClose }) {
           </>
         )}
       </div>
+
+      {editingKb && (
+        <KbEditModal
+          entry={editingKb}
+          putBase="/admin/knowledge"
+          channels={[
+            { v: 'all', label: isAr ? 'كل الوكلاء (مشترك)' : 'All agents (shared)' },
+            { v: 'whatsapp', label: 'WhatsApp' }, { v: 'instagram', label: 'Instagram' },
+            { v: 'website', label: isAr ? 'الموقع' : 'Website' }, { v: 'voice', label: isAr ? 'الصوت' : 'Voice' },
+          ]}
+          onClose={() => setEditingKb(null)}
+          onSaved={loadKb}
+        />
+      )}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { useAdminT } from '../../i18n/admin'
 import { apiGet, apiPut, apiPostAuth, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
+import { KbEditModal } from './KbEditModal'
 
 /**
  * Admin's own official STS voice agent (Twilio ⇄ OpenAI Realtime).
@@ -218,6 +219,7 @@ function VoiceKnowledge() {
   const [q, setQ] = useState('')
   const [a, setA] = useState('')
   const [scope, setScope] = useState('voice') // 'voice' (this agent) or 'all' (shared)
+  const [editingKb, setEditingKb] = useState(null)
   const load = () => apiGet('/admin/voice/knowledge').then(setKb).catch(() => {})
   useEffect(() => { load() }, [])
   async function importUrl() { if (!url.trim()) return; await apiPostAuth('/admin/voice/knowledge', { type: 'url', title: url.trim(), source_url: url.trim(), meta: 'URL', channel: scope }).catch(() => {}); setUrl(''); toast(isAr ? 'تمت الإضافة ✓' : 'Added ✓'); load() }
@@ -250,15 +252,25 @@ function VoiceKnowledge() {
         {kb.map((s) => (
           <div className="kb-item" key={s.id}>
             <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
-            <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
+            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setEditingKb(s)}><b>{s.title}</b><span>{s.meta || ''}</span></div>
             <span className={`badge ${(s.channel || 'voice') === 'all' ? 'b-info' : 'b-ok'}`}>
               {(s.channel || 'voice') === 'all' ? (isAr ? 'الكل' : 'ALL') : (isAr ? 'صوت' : 'VOICE')}
             </span>
-            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => remove(s.id)}><Icon name="x" size={13} /></button>
+            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => setEditingKb(s)}><Icon name="pencil" size={13} /></button>
+            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 6 }} onClick={() => remove(s.id)}><Icon name="x" size={13} /></button>
           </div>
         ))}
         {kb.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}>{isAr ? 'لا توجد مصادر بعد.' : 'No knowledge yet.'}</div>}
       </div>
+      {editingKb && (
+        <KbEditModal
+          entry={editingKb}
+          putBase="/admin/voice/knowledge"
+          channels={[{ v: 'voice', label: isAr ? 'الوكيل الصوتي فقط' : 'Voice agent only' }, { v: 'all', label: isAr ? 'كل الوكلاء (مشترك)' : 'All agents (shared)' }]}
+          onClose={() => setEditingKb(null)}
+          onSaved={load}
+        />
+      )}
     </div>
   )
 }

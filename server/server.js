@@ -418,10 +418,23 @@ app.put('/api/bots/:channel', auth, wrap(async (req, res) => {
 // Knowledge base (per-agent scoped via `channel`; 'all' = shared)
 const KB_CHANNELS = ['all', 'whatsapp', 'instagram', 'website', 'voice']
 const kbChannel = (c) => (KB_CHANNELS.includes(c) ? c : 'all')
+const KB_COLS = 'id, type, title, content, meta, source_url, status, channel, created_at'
+
+/** Update a KB entry's editable fields. `businessGuard` scopes it to one business. */
+async function updateKb(id, body = {}, businessGuard = null) {
+  const sets = [], params = [id]
+  const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }
+  add('title', body.title); add('content', body.content); add('source_url', body.source_url); add('meta', body.meta)
+  if (body.channel !== undefined) { params.push(kbChannel(body.channel)); sets.push(`channel=$${params.length}`) }
+  let where = 'id=$1'
+  if (businessGuard) { params.push(businessGuard); where += ` and business_id=$${params.length}` }
+  if (!sets.length) return one(`select ${KB_COLS} from sts_knowledge_sources where ${where}`, params)
+  return one(`update sts_knowledge_sources set ${sets.join(', ')} where ${where} returning ${KB_COLS}`, params)
+}
 
 app.get('/api/knowledge', auth, wrap(async (req, res) => {
   const params = [biz(req)]
-  let sql = `select id, type, title, meta, source_url, status, channel, created_at from sts_knowledge_sources where business_id=$1`
+  let sql = `select ${KB_COLS} from sts_knowledge_sources where business_id=$1`
   if (req.query.channel && KB_CHANNELS.includes(req.query.channel)) { params.push(req.query.channel); sql += ` and channel=$2` }
   sql += ` order by created_at desc`
   res.json(await many(sql, params))
@@ -432,10 +445,16 @@ app.post('/api/knowledge', auth, wrap(async (req, res) => {
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
     `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
-     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning id, type, title, meta, source_url, status, channel, created_at`,
+     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning ${KB_COLS}`,
     [biz(req), type || 'qa', title, content || null, source_url || null, meta || null, kbChannel(channel)],
   )
   res.status(201).json(row)
+}))
+
+app.put('/api/knowledge/:id', auth, wrap(async (req, res) => {
+  const row = await updateKb(req.params.id, req.body, biz(req))
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json(row)
 }))
 
 app.delete('/api/knowledge/:id', auth, wrap(async (req, res) => {
@@ -780,7 +799,7 @@ app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(
 /* ---------- ADMIN: per-business knowledge base (chatbot training) ---------- */
 app.get('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req, res) => {
   const params = [req.params.id]
-  let sql = `select id, type, title, meta, source_url, status, channel, created_at from sts_knowledge_sources where business_id=$1`
+  let sql = `select ${KB_COLS} from sts_knowledge_sources where business_id=$1`
   if (req.query.channel && KB_CHANNELS.includes(req.query.channel)) { params.push(req.query.channel); sql += ` and channel=$2` }
   sql += ` order by created_at desc`
   res.json(await many(sql, params))
@@ -791,10 +810,16 @@ app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
     `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
-     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning id, type, title, meta, source_url, status, channel, created_at`,
+     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning ${KB_COLS}`,
     [req.params.id, type || 'qa', title, content || null, source_url || null, meta || null, kbChannel(channel)],
   )
   res.status(201).json(row)
+}))
+
+app.put('/api/admin/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
+  const row = await updateKb(req.params.id, req.body)
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json(row)
 }))
 
 app.delete('/api/admin/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
@@ -1012,7 +1037,7 @@ app.put('/api/admin/voice/bot', auth, adminOnly, wrap(async (req, res) => {
 app.get('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (_req, res) => {
   const pid = await platformBusinessId()
   // the voice agent uses its own 'voice' entries + anything shared as 'all'
-  res.json(await many(`select id, type, title, meta, source_url, status, channel, created_at from sts_knowledge_sources where business_id=$1 and channel in ('all','voice') order by created_at desc`, [pid]))
+  res.json(await many(`select ${KB_COLS} from sts_knowledge_sources where business_id=$1 and channel in ('all','voice') order by created_at desc`, [pid]))
 }))
 app.post('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) => {
   const pid = await platformBusinessId()
@@ -1020,10 +1045,17 @@ app.post('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) =>
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
     `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
-     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning id, type, title, meta, source_url, status, channel, created_at`,
+     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning ${KB_COLS}`,
     [pid, type || 'qa', title, content || null, source_url || null, meta || null, channel === 'all' ? 'all' : 'voice'],
   )
   res.status(201).json(row)
+}))
+app.put('/api/admin/voice/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
+  const body = { ...req.body }
+  if (body.channel !== undefined) body.channel = body.channel === 'all' ? 'all' : 'voice'
+  const row = await updateKb(req.params.id, body, await platformBusinessId())
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json(row)
 }))
 app.delete('/api/admin/voice/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
   await pool.query(`delete from sts_knowledge_sources where id=$1 and business_id=$2`, [req.params.id, await platformBusinessId()])

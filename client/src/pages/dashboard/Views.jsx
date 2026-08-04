@@ -170,6 +170,7 @@ export function KnowledgeView() {
   const [a, setA] = useState('')
   const [scope, setScope] = useState('all')   // "Train for" target
   const [filter, setFilter] = useState('')     // "" = show all entries
+  const [editing, setEditing] = useState(null) // entry being edited
 
   const load = () => apiGet('/knowledge').then(setSources).catch(() => {})
   useEffect(() => { load() }, [])
@@ -223,14 +224,58 @@ export function KnowledgeView() {
         {shown.map((s) => (
           <div className="kb-item" key={s.id}>
             <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
-            <div style={{ flex: 1 }}><b>{s.title}</b><span>{s.meta || ''}</span></div>
+            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setEditing(s)}><b>{s.title}</b><span>{s.meta || ''}</span></div>
             <span className={`badge ${KB_CH_BADGE[s.channel || 'all']}`}>{chLabel(s.channel || 'all', t)}</span>
-            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => remove(s.id)}>
+            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => setEditing(s)} title={t('edit')}>
+              <Icon name="pencil" size={13} />
+            </button>
+            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 6 }} onClick={() => remove(s.id)}>
               <Icon name="x" size={13} />
             </button>
           </div>
         ))}
         {shown.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}><T k="kb_empty" /></div>}
+      </div>
+      {editing && <KbEditModal entry={editing} onClose={() => setEditing(null)} onSaved={load} />}
+    </div>
+  )
+}
+
+/* Edit a stored knowledge entry — pre-filled with its saved data. */
+function KbEditModal({ entry, onClose, onSaved }) {
+  const { t, isAr } = useLang()
+  const toast = useToast()
+  const [f, setF] = useState({
+    title: entry.title || '', content: entry.content || '',
+    source_url: entry.source_url || '', channel: entry.channel || 'all',
+  })
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+  async function save() {
+    try { await apiPut('/knowledge/' + entry.id, f); toast(); onSaved?.(); onClose() }
+    catch { toast(t('save_failed')) }
+  }
+  const isUrl = entry.type === 'url'
+  return (
+    <div className="modal open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-card" style={{ maxWidth: 520 }}>
+        <button className="modal-x" onClick={onClose}><Icon name="x" /></button>
+        <h3 style={{ marginBottom: 12 }}><Icon name="pencil" size={16} /> <T k="kb_edit" /></h3>
+        <div className="field"><label>{isUrl ? t('kb_url') : t('kb_q')}</label>
+          <input value={f.title} onChange={(e) => set('title', e.target.value)} />
+        </div>
+        {isUrl ? (
+          <div className="field"><label>URL</label><input value={f.source_url} onChange={(e) => set('source_url', e.target.value)} /></div>
+        ) : (
+          <div className="field"><label>{t('kb_a')}</label><textarea rows="5" value={f.content} onChange={(e) => set('content', e.target.value)} /></div>
+        )}
+        <div className="field"><label><T k="kb_for" /></label>
+          <select value={f.channel} onChange={(e) => set('channel', e.target.value)}>
+            {KB_CHANNELS.map((c) => <option key={c.v} value={c.v}>{c.key ? t(c.key) : c.label}</option>)}
+          </select>
+        </div>
+        <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center' }} onClick={save}>
+          <Icon name="save" size={16} />{isAr ? 'حفظ التعديلات' : 'Save changes'}
+        </button>
       </div>
     </div>
   )
