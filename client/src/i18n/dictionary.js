@@ -177,6 +177,8 @@ export const en = {
   ft_ct: 'Contact',
   ft_kw: 'Kuwait',
   ft_rights: 'All rights reserved.',
+  ft_privacy: 'Privacy Policy',
+  ft_terms: 'Terms of Service',
   ft_meta: 'Built on the official Meta WhatsApp Business Platform.',
 
   /* ================= dashboard ================= */
@@ -508,6 +510,8 @@ export const ar = {
   ft_ct: 'تواصل',
   ft_kw: 'الكويت',
   ft_rights: 'جميع الحقوق محفوظة.',
+  ft_privacy: 'سياسة الخصوصية',
+  ft_terms: 'شروط الخدمة',
   ft_meta: 'مبنية على منصة واتساب الرسمية من ميتا.',
 
   /* dashboard */

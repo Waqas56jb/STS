@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { Reveal } from '../components/Reveal'
 import { ShowcaseMock } from '../components/ShowcaseMocks'
@@ -496,7 +496,11 @@ export default function Landing() {
           </div>
           <div className="f-bot">
             <span>© 2026 STS. <T k="ft_rights" /></span>
-            <T k="ft_meta" />
+            <span style={{ display: 'inline-flex', gap: 16, alignItems: 'center' }}>
+              <Link to="/privacy" style={{ color: 'inherit', textDecoration: 'none', opacity: 0.85 }}><T k="ft_privacy" /></Link>
+              <Link to="/terms" style={{ color: 'inherit', textDecoration: 'none', opacity: 0.85 }}><T k="ft_terms" /></Link>
+              <T k="ft_meta" />
+            </span>
           </div>
         </div>
       </footer>
