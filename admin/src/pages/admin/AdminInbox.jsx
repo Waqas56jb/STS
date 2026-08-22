@@ -158,7 +158,7 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
             ))}
           </div>
         )}
-        <div>
+        <div className="conv-scroll">
           {list.map((c) => (
             <div key={c.id} className={`conv ${c.id === activeId ? 'on' : ''}`} onClick={() => openConv(c.id)}>
               <span className={`ch ${ci(c.ch)[0]}`}>
@@ -223,10 +223,13 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
         </div>
         <div className="composer">
           <input
+            type="text"
+            enterKeyHint="send"
+            autoComplete="off"
             placeholder={t('ix_type')}
             value={draft}
             onChange={(e) => { setDraft(e.target.value); try { sessionStorage.setItem(storageKey('draft'), e.target.value) } catch { /* ignore */ } }}
-            onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMsg()}
           />
           <button className="btn btn-g" onClick={sendMsg}>
             <Icon name="send" size={16} />

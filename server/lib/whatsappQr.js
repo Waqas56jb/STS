@@ -71,28 +71,69 @@ function destroyActiveSocket(businessId) {
   try { sock.ws?.close() } catch { /* ignore */ }
 }
 
-/** Recently handled inbound WA message ids (Baileys may emit duplicates). */
+/** Recently handled inbound WA message ids — global across all businesses/sockets. */
 const recentInbound = new Map()
 const inboundInflight = new Set()
 const INBOUND_TTL_MS = 3 * 60 * 1000
+/** One active QR session per linked phone (prevents duplicate AI replies). */
+const phoneOwner = new Map()
 
-function inboundDedupeKey(businessId, keyId) {
-  return `${businessId}:${keyId}`
+function globalInboundKey(waMsgId) {
+  return `wa:${waMsgId}`
 }
 
-function markInboundSeen(key) {
-  recentInbound.set(key, Date.now())
+function pruneInboundSeen() {
   for (const [k, t] of recentInbound) {
     if (Date.now() - t > INBOUND_TTL_MS) recentInbound.delete(k)
   }
 }
 
-function isInboundDuplicate(businessId, keyId) {
-  if (!keyId) return true
-  const key = inboundDedupeKey(businessId, keyId)
-  if (inboundInflight.has(key)) return true
+function markInboundSeen(waMsgId) {
+  if (!waMsgId) return
+  recentInbound.set(globalInboundKey(waMsgId), Date.now())
+  pruneInboundSeen()
+}
+
+/** Atomically claim a WhatsApp message id so only one handler runs. */
+function claimInboundMessage(waMsgId) {
+  if (!waMsgId) return false
+  const key = globalInboundKey(waMsgId)
+  if (inboundInflight.has(key)) return false
   const seenAt = recentInbound.get(key)
-  return seenAt != null && Date.now() - seenAt < INBOUND_TTL_MS
+  if (seenAt != null && Date.now() - seenAt < INBOUND_TTL_MS) return false
+  inboundInflight.add(key)
+  return true
+}
+
+function releaseInboundMessage(waMsgId) {
+  if (!waMsgId) return
+  inboundInflight.delete(globalInboundKey(waMsgId))
+}
+
+function registerPhoneOwner(businessId, displayNumber) {
+  const phone = normalizeWaHandle(displayNumber)
+  if (!phone) return true
+  const existing = phoneOwner.get(phone)
+  if (existing && existing !== businessId) {
+    log(`phone ${phone} already linked to business=${existing}, rejecting duplicate business=${businessId}`)
+    return false
+  }
+  phoneOwner.set(phone, businessId)
+  return true
+}
+
+function unregisterPhoneOwner(businessId, displayNumber) {
+  const phone = normalizeWaHandle(displayNumber)
+  if (!phone) return
+  if (phoneOwner.get(phone) === businessId) phoneOwner.delete(phone)
+}
+
+function isInboundOwner(businessId) {
+  const session = sessions.get(businessId)
+  const phone = normalizeWaHandle(session?.displayNumber)
+  if (!phone) return true
+  const owner = phoneOwner.get(phone)
+  return !owner || owner === businessId
 }
 
 export function setQrInboundHandler(fn) {
@@ -474,6 +515,17 @@ export async function startQrSession(businessId, { restore = false } = {}) {
           reconnecting.delete(businessId)
           clearReconnectTimer(businessId)
           const display = displayFromJid(sock.user?.id)
+          if (!registerPhoneOwner(businessId, display)) {
+            log(`business=${businessId} duplicate phone link — disconnecting`)
+            destroyActiveSocket(businessId)
+            setState(businessId, {
+              status: 'error',
+              qr: null,
+              sock: null,
+              error: 'This WhatsApp number is already linked to another workspace. Disconnect it there first.',
+            })
+            return
+          }
           setState(businessId, {
             status: 'connected',
             qr: null,
@@ -491,6 +543,8 @@ export async function startQrSession(businessId, { restore = false } = {}) {
           const code = err?.output?.statusCode ?? err?.statusCode
           const loggedOut = code === baileys.DisconnectReason.loggedOut
           log(`business=${businessId} closed code=${code ?? 'unknown'}`)
+          const prev = sessions.get(businessId)
+          unregisterPhoneOwner(businessId, prev?.displayNumber)
           destroyActiveSocket(businessId)
           if (loggedOut) {
             reconnecting.delete(businessId)
@@ -540,15 +594,15 @@ export async function startQrSession(businessId, { restore = false } = {}) {
 
 async function handleBaileysMessage(businessId, m) {
   if (!m?.key || m.key.fromMe) return
+  if (!isInboundOwner(businessId)) return
   const jid = m.key.remoteJid || ''
-  if (jid.endsWith('@g.us') || jid === 'status@broadcast' || jid.endsWith('@broadcast')) return // groups / status ignored
+  if (jid.endsWith('@g.us') || jid === 'status@broadcast' || jid.endsWith('@broadcast')) return
 
-  const dedupeKey = inboundDedupeKey(businessId, m.key.id)
-  if (isInboundDuplicate(businessId, m.key.id)) {
-    log(`business=${businessId} skipped duplicate msg ${m.key.id}`)
+  const waMsgId = m.key.id
+  if (!claimInboundMessage(waMsgId)) {
+    log(`business=${businessId} skipped duplicate msg ${waMsgId}`)
     return
   }
-  inboundInflight.add(dedupeKey)
 
   try {
     const message = m.message || {}
@@ -598,7 +652,7 @@ async function handleBaileysMessage(businessId, m) {
     const from = replyJid || normalizeWaHandle(alt) || normalizeWaHandle(jid)
     if (!from) return
     const name = m.pushName || normalizeWaHandle(alt || jid) || from
-    const messageId = `qr:${businessId}:${m.key.id}`
+    const messageId = `wa-qr:${waMsgId}`
     if (!inboundHandler) {
       log(`business=${businessId} no inbound handler`)
       return
@@ -614,9 +668,9 @@ async function handleBaileysMessage(businessId, m) {
       previewText: isVoice ? `🎤 ${inboundText.slice(0, 120)}` : undefined,
       inboundBody: isVoice ? `[Voice] ${inboundText}` : inboundText,
     })
-    markInboundSeen(dedupeKey)
+    markInboundSeen(waMsgId)
   } finally {
-    inboundInflight.delete(dedupeKey)
+    releaseInboundMessage(waMsgId)
   }
 }
 

@@ -97,7 +97,9 @@ export function AgentActivity() {
       {view === 'calls' || isVoice ? (
         <AdminCallHistory listEndpoint={callsUrl} itemEndpoint="/admin/calls" apiGet={apiGet} showBusiness={!bizId} />
       ) : (
-        <AdminInbox businessId={bizId || undefined} defaultChannel={msgChannel} showBusiness={!bizId} />
+        <div className="act-inbox-wrap">
+          <AdminInbox businessId={bizId || undefined} defaultChannel={msgChannel} showBusiness={!bizId} />
+        </div>
       )}
     </div>
   )
