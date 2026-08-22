@@ -164,8 +164,13 @@ export function TrainingStudio({
         type: 'qa', title: profile.name || t('tr_biz_title'), content,
         meta: PROFILE_META, channel: 'all',
       }
-      if (profileId) await endpoints.updateKnowledge(profileId, body)
-      else {
+      if (profileId) {
+        try { await endpoints.updateKnowledge(profileId, body) }
+        catch {
+          const row = await endpoints.createKnowledge(body)
+          setProfileId(row.id)
+        }
+      } else {
         const row = await endpoints.createKnowledge(body)
         setProfileId(row.id)
       }
