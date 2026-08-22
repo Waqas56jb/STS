@@ -9,7 +9,7 @@ import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.
 import { verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
 import { sendWhatsAppByProvider } from './lib/whatsappTransport.js'
 import {
-  attachQrSocket, startQrSession, stopQrSession, logoutQrSession, getQrStatus,
+  attachQrSocket, startQrSession, stopQrSession, logoutQrSession, getQrStatus, resolveQrStatus,
   restoreQrSessions, setQrInboundHandler, qrEnabled, businessAllowsWhatsApp,
 } from './lib/whatsappQr.js'
 import { generateReply } from './lib/ai.js'
@@ -976,8 +976,8 @@ async function qrStartFor(businessId, res) {
   const status = await startQrSession(businessId)
   res.json({ success: true, ...status })
 }
-function qrStatusFor(businessId, res) {
-  res.json({ success: true, ...getQrStatus(businessId) })
+async function qrStatusFor(businessId, res) {
+  res.json({ success: true, ...(await resolveQrStatus(businessId)) })
 }
 
 app.post('/api/me/whatsapp/qr/start', auth, wrap(async (req, res) => {
@@ -986,7 +986,7 @@ app.post('/api/me/whatsapp/qr/start', auth, wrap(async (req, res) => {
 }))
 app.get('/api/me/whatsapp/qr/status', auth, wrap(async (req, res) => {
   if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
-  qrStatusFor(biz(req), res)
+  await qrStatusFor(biz(req), res)
 }))
 app.post('/api/me/whatsapp/qr/logout', auth, wrap(async (req, res) => {
   if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
@@ -1131,7 +1131,8 @@ async function connectionsFor(businessId, reveal = false) {
     try { creds = row ? decryptJSON(row.secrets_enc) : {} } catch { creds = {} }
     let connected = row?.connected || false
     if (channel === 'whatsapp' && creds.provider === 'qr') {
-      connected = getQrStatus(businessId).status === 'connected'
+      const st = await resolveQrStatus(businessId)
+      connected = st.status === 'connected' || st.status === 'reconnecting'
     }
     return {
       channel,

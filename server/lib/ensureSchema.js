@@ -7,6 +7,7 @@ export async function ensureTrainingSchema() {
   await pool.query(`alter table sts_bot_settings add column if not exists rules text`)
   await pool.query(`alter table sts_knowledge_sources add column if not exists channel text default 'all'`)
   await pool.query(`alter table sts_businesses add column if not exists owner_user_id uuid references sts_users(id) on delete set null`)
+  await pool.query(`alter table sts_channel_configs add column if not exists qr_auth_enc text`)
   await pool.query(`create index if not exists idx_sts_biz_owner on sts_businesses(owner_user_id)`)
   // Old training saved one shared business card (channel=all). That leaked
   // WhatsApp form data onto Instagram/voice/web. Keep it on WhatsApp only.

@@ -99,9 +99,11 @@ create table if not exists sts_channel_configs (
   connected   boolean default false,
   ext_ref     text,
   secrets_enc text,
+  qr_auth_enc text,                                    -- encrypted Baileys auth files; never sent to the browser
   updated_at  timestamptz default now(),
   unique(business_id, channel)
 );
+alter table sts_channel_configs add column if not exists qr_auth_enc text;
 create index if not exists idx_sts_cfg_ext on sts_channel_configs(channel, ext_ref);
 
 -- ---------- bot settings (per business + channel) ----------

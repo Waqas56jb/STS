@@ -12,6 +12,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
 import pino from 'pino'
@@ -32,6 +33,7 @@ let inboundHandler = null
 const lastStart = new Map()
 const starting = new Set()
 const reconnecting = new Set()
+const persistTimers = new Map()
 
 export function setQrInboundHandler(fn) {
   inboundHandler = fn
@@ -48,6 +50,87 @@ export function normalizeWaHandle(input) {
 function sessionDir(businessId) {
   const id = String(businessId).replace(/[^a-fA-F0-9-]/g, '')
   return path.join(SESSION_ROOT, id)
+}
+
+function snapshotSessionFiles(dir) {
+  const files = {}
+  if (!fs.existsSync(dir)) return files
+  for (const name of fs.readdirSync(dir)) {
+    if (!/^[\w.-]+$/.test(name)) continue
+    const full = path.join(dir, name)
+    try {
+      if (!fs.statSync(full).isFile()) continue
+      files[name] = fs.readFileSync(full).toString('base64')
+    } catch { /* skip unreadable */ }
+  }
+  return files
+}
+
+function writeSessionFiles(dir, files) {
+  fs.mkdirSync(dir, { recursive: true })
+  for (const [name, b64] of Object.entries(files || {})) {
+    if (!/^[\w.-]+$/.test(name) || typeof b64 !== 'string') continue
+    fs.writeFileSync(path.join(dir, name), Buffer.from(b64, 'base64'))
+  }
+}
+
+function hasRegisteredCreds(businessId) {
+  try {
+    const raw = fs.readFileSync(path.join(sessionDir(businessId), 'creds.json'), 'utf8')
+    const creds = JSON.parse(raw)
+    return !!(creds?.me || creds?.registered)
+  } catch {
+    return false
+  }
+}
+
+async function persistAuthToDb(businessId) {
+  const files = snapshotSessionFiles(sessionDir(businessId))
+  if (!Object.keys(files).length) return
+  const packed = zlib.gzipSync(Buffer.from(JSON.stringify(files)), { level: 9 }).toString('base64')
+  await pool.query(
+    `insert into sts_channel_configs (business_id, channel, connected, secrets_enc, qr_auth_enc, updated_at)
+     values ($1,'whatsapp', false, $2, $3, now())
+     on conflict (business_id, channel) do update set
+       qr_auth_enc=excluded.qr_auth_enc, updated_at=now()`,
+    [businessId, encryptJSON({ provider: 'qr' }), encryptJSON({ packed })],
+  )
+}
+
+function schedulePersistAuth(businessId) {
+  clearTimeout(persistTimers.get(businessId))
+  persistTimers.set(businessId, setTimeout(() => {
+    persistAuthToDb(businessId).catch((e) => log('auth persist failed', e.message))
+  }, 800))
+}
+
+async function hydrateAuthFromDb(businessId) {
+  const dir = sessionDir(businessId)
+  if (hasRegisteredCreds(businessId)) return true
+  const row = await one(
+    `select qr_auth_enc from sts_channel_configs where business_id=$1 and channel='whatsapp'`,
+    [businessId],
+  )
+  if (!row?.qr_auth_enc) return false
+  let packed = ''
+  try { packed = decryptJSON(row.qr_auth_enc)?.packed || '' } catch { return false }
+  if (!packed) return false
+  try {
+    const files = JSON.parse(zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8'))
+    writeSessionFiles(dir, files)
+    return hasRegisteredCreds(businessId)
+  } catch (e) {
+    log(`hydrate ${businessId} failed`, e.message)
+    return false
+  }
+}
+
+async function clearAuthInDb(businessId) {
+  await pool.query(
+    `update sts_channel_configs set qr_auth_enc=null, updated_at=now()
+      where business_id=$1 and channel='whatsapp'`,
+    [businessId],
+  ).catch(() => {})
 }
 
 function emit(businessId, payload) {
@@ -81,6 +164,33 @@ export function getQrStatus(businessId) {
     display_number: s.displayNumber || '',
     error: s.error,
     connected_at: s.connectedAt,
+  }
+}
+
+/** Live socket, or "still paired" from saved auth — never ask to scan while the phone still has this device. */
+export async function resolveQrStatus(businessId) {
+  const live = getQrStatus(businessId)
+  if (live.status === 'connected' || live.status === 'qr' || live.status === 'starting' || live.status === 'connecting' || live.status === 'reconnecting') {
+    return live
+  }
+  const row = await one(
+    `select secrets_enc, qr_auth_enc from sts_channel_configs where business_id=$1 and channel='whatsapp'`,
+    [businessId],
+  )
+  let creds = {}
+  try { creds = row ? decryptJSON(row.secrets_enc) : {} } catch { creds = {} }
+  const paired = creds.provider === 'qr' && creds.status === 'connected' && (row?.qr_auth_enc || hasRegisteredCreds(businessId))
+  if (!paired) return live
+  if (!starting.has(businessId) && !reconnecting.has(businessId) && !sessions.get(businessId)?.sock) {
+    startQrSession(businessId, { restore: true }).catch((e) => log('auto-resume failed', e.message))
+  }
+  return {
+    provider: 'qr',
+    status: 'reconnecting',
+    qr: null,
+    display_number: creds.display_number || '',
+    error: null,
+    connected_at: creds.connected_at || null,
   }
 }
 
@@ -215,6 +325,7 @@ export async function startQrSession(businessId, { restore = false } = {}) {
     setState(businessId, { status: restore ? 'reconnecting' : 'starting', qr: restore ? null : existing?.qr || null, error: null })
     log(`business=${businessId} status=${restore ? 'reconnecting' : 'starting'}`)
 
+    await hydrateAuthFromDb(businessId).catch(() => {})
     const dir = sessionDir(businessId)
     fs.mkdirSync(dir, { recursive: true })
 
@@ -233,8 +344,12 @@ export async function startQrSession(businessId, { restore = false } = {}) {
       getMessage: async () => undefined,
     })
 
-    setState(businessId, { sock, status: restore && state.creds?.registered ? 'connecting' : 'starting' })
-    sock.ev.on('creds.update', saveCreds)
+    const paired = !!(state.creds?.registered || state.creds?.me)
+    setState(businessId, { sock, status: (restore || paired) && paired ? 'connecting' : 'starting', qr: paired ? null : sessions.get(businessId)?.qr || null })
+    sock.ev.on('creds.update', async () => {
+      try { await saveCreds() } catch { /* ignore */ }
+      schedulePersistAuth(businessId)
+    })
 
     sock.ev.on('connection.update', async (update) => {
       try {
@@ -258,20 +373,23 @@ export async function startQrSession(businessId, { restore = false } = {}) {
             error: null,
             connectedAt: new Date().toISOString(),
           })
-          await persistMeta(businessId, { status: 'connected', display_number: display }).catch((e) => log('persist failed', e.message))
+          await persistMeta(businessId, { status: 'connected', display_number: display, connected_at: new Date().toISOString() }).catch((e) => log('persist failed', e.message))
+          schedulePersistAuth(businessId)
           log(`business=${businessId} status=connected number=${display}`)
         }
         if (connection === 'close') {
           const err = lastDisconnect?.error
           const code = err?.output?.statusCode ?? err?.statusCode
-          const loggedOut = code === baileys.DisconnectReason.loggedOut || code === 401 || code === 403 || code === 440
-          // 515 = restartRequired — normal right after a successful QR scan
+          // Only the phone "Unlink device" / loggedOut should drop the pairing.
+          // 440 = replaced connection, 515 = restartRequired — reconnect, do not ask to scan.
+          const loggedOut = code === baileys.DisconnectReason.loggedOut
           log(`business=${businessId} closed code=${code ?? 'unknown'}`)
           if (loggedOut) {
             reconnecting.delete(businessId)
-            setState(businessId, { status: 'logged_out', qr: null, sock: null, error: 'Logged out — scan a new QR' })
+            setState(businessId, { status: 'logged_out', qr: null, sock: null, error: 'Unlinked on the phone — scan a new QR' })
             await persistMeta(businessId, { status: 'logged_out' }).catch(() => {})
             wipeSessionDir(businessId)
+            await clearAuthInDb(businessId)
             log(`business=${businessId} status=logged_out`)
             return
           }
@@ -357,14 +475,16 @@ export async function stopQrSession(businessId, { wipe = false } = {}) {
 export async function logoutQrSession(businessId) {
   const s = sessions.get(businessId)
   try { await s?.sock?.logout?.() } catch { /* ignore */ }
-  return stopQrSession(businessId, { wipe: true })
+  const out = await stopQrSession(businessId, { wipe: true })
+  await clearAuthInDb(businessId)
+  return out
 }
 
 export async function restoreQrSessions() {
   if (!QR_ENABLED) return
   let rows = []
   try {
-    rows = await many(`select business_id, secrets_enc from sts_channel_configs where channel='whatsapp'`)
+    rows = await many(`select business_id, secrets_enc, qr_auth_enc from sts_channel_configs where channel='whatsapp'`)
   } catch (e) {
     log('restore skipped', e.message)
     return
@@ -373,8 +493,9 @@ export async function restoreQrSessions() {
     let creds = {}
     try { creds = decryptJSON(r.secrets_enc) } catch { continue }
     if (creds.provider !== 'qr') continue
-    const dir = sessionDir(r.business_id)
-    if (!fs.existsSync(dir)) continue
+    if (creds.status === 'logged_out') continue
+    const hydrated = await hydrateAuthFromDb(r.business_id).catch(() => false)
+    if (!hydrated && !hasRegisteredCreds(r.business_id) && !r.qr_auth_enc) continue
     startQrSession(r.business_id, { restore: true }).catch((e) => log(`restore ${r.business_id} failed`, e.message))
   }
 }
