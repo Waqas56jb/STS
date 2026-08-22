@@ -14,7 +14,7 @@ import {
   Instagram, KeyRound, Languages, LayoutDashboard, Library, Lock, LogIn, LogOut,
   Menu, MessageCircle, MessageSquare, MessagesSquare, Package, Pause, Pencil,
   PhoneCall, PhoneIncoming, PhoneOutgoing, PieChart, Play, PlugZap, Plus,
-  Receipt, Save, Send, Settings, Shield, ShieldCheck, Sparkles, Target, Timer,
+  QrCode, Receipt, RefreshCw, Save, Send, Settings, Shield, ShieldCheck, Sparkles, Target, Timer,
   TrendingUp, Trash2, Trophy, Twitter, UploadCloud, User, UserCheck, UserPlus, Users,
   Webhook, Wrench, X, XCircle, Zap,
 } from 'lucide-react'
@@ -80,6 +80,8 @@ const MAP = {
   'pie-chart': PieChart,
   'plug-zap': PlugZap,
   plus: Plus,
+  'qr-code': QrCode,
+  'refresh-cw': RefreshCw,
   receipt: Receipt,
   save: Save,
   send: Send,

@@ -9,10 +9,14 @@
  */
 export const CONNECTION_SPEC = {
   whatsapp: {
-    label: 'WhatsApp — Meta Cloud API',
+    label: 'WhatsApp',
     icon: 'message-circle',
     extRef: 'phone_number_id',
     required: ['phone_number_id', 'access_token'],
+    providers: [
+      { id: 'cloud_api', label: 'Meta Cloud API' },
+      { id: 'qr', label: 'QR / Linked Device' },
+    ],
     fields: [
       { key: 'app_id', label: 'Meta App ID', secret: false },
       { key: 'app_secret', label: 'Meta App Secret', secret: true },
@@ -58,7 +62,14 @@ export const CHANNELS = Object.keys(CONNECTION_SPEC)
 
 /** true if every required field for the channel has a value. */
 export function isConnected(channel, creds) {
+  if (!creds) return false
+  if (channel === 'whatsapp' && creds.provider === 'qr') return creds.status === 'connected'
   const spec = CONNECTION_SPEC[channel]
   if (!spec) return false
-  return spec.required.every((k) => creds && String(creds[k] || '').trim() !== '')
+  return spec.required.every((k) => String(creds[k] || '').trim() !== '')
+}
+
+/** WhatsApp transport: qr | cloud_api (default). */
+export function resolveWhatsAppProvider(creds) {
+  return creds?.provider === 'qr' ? 'qr' : 'cloud_api'
 }

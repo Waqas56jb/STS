@@ -5,6 +5,7 @@ import { apiGet, apiPut, apiPostAuth, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
 import { VoiceAgent } from './VoiceAgent'
 import { KbEditModal } from './KbEditModal'
+import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 
 /**
  * STS's OWN agents. The admin configures + trains STS's official WhatsApp,
@@ -59,8 +60,12 @@ function AgentConnection({ channel, spec }) {
   const [form, setForm] = useState({})
   const [shown, setShown] = useState({})
   const [saving, setSaving] = useState(false)
+  const [waProvider, setWaProvider] = useState('qr')
 
-  const load = () => apiGet(`/admin/agent/${channel}/connection`).then(setCurrent).catch(() => {})
+  const load = () => apiGet(`/admin/agent/${channel}/connection`).then((c) => {
+    setCurrent(c)
+    if (channel === 'whatsapp') setWaProvider(c?.provider === 'cloud_api' ? 'cloud_api' : 'qr')
+  }).catch(() => {})
   useEffect(() => { load() }, [channel])
   useEffect(() => {
     if (!spec) return
@@ -94,7 +99,16 @@ function AgentConnection({ channel, spec }) {
           {current?.connected ? (isAr ? 'متصل' : 'CONNECTED') : (isAr ? 'غير متصل' : 'NOT CONNECTED')}
         </span>
       </div>
-      {spec.fields.map((f) => (
+      {channel === 'whatsapp' && (
+        <div className="conn-tabs" style={{ marginBottom: 12 }}>
+          <button className={`conn-tab ${waProvider === 'qr' ? 'on' : ''}`} onClick={() => setWaProvider('qr')}>{isAr ? 'رمز QR' : 'QR / Linked Device'}</button>
+          <button className={`conn-tab ${waProvider === 'cloud_api' ? 'on' : ''}`} onClick={() => setWaProvider('cloud_api')}>Meta Cloud API</button>
+        </div>
+      )}
+      {channel === 'whatsapp' && waProvider === 'qr' && (
+        <WhatsAppQrPanel base="/admin/agent/whatsapp/qr" />
+      )}
+      {(channel !== 'whatsapp' || waProvider === 'cloud_api') && spec.fields.map((f) => (
         <div className="field" key={f.key}>
           <label>{f.label}{spec.required.includes(f.key) && ' *'}</label>
           {f.type === 'select' ? (
@@ -115,12 +129,14 @@ function AgentConnection({ channel, spec }) {
           )}
         </div>
       ))}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-g" style={{ flex: 1, justifyContent: 'center' }} onClick={save} disabled={saving}>
-          <Icon name="save" size={16} />{saving ? '…' : (isAr ? 'حفظ الاتصال' : 'Save connection')}
-        </button>
-        {current?.connected && <button className="btn btn-o" onClick={disconnect}><Icon name="trash-2" size={15} /></button>}
-      </div>
+      {(channel !== 'whatsapp' || waProvider === 'cloud_api') && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-g" style={{ flex: 1, justifyContent: 'center' }} onClick={save} disabled={saving}>
+            <Icon name="save" size={16} />{saving ? '…' : (isAr ? 'حفظ الاتصال' : 'Save connection')}
+          </button>
+          {current?.connected && <button className="btn btn-o" onClick={disconnect}><Icon name="trash-2" size={15} /></button>}
+        </div>
+      )}
     </div>
   )
 }

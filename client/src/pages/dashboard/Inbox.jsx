@@ -27,18 +27,28 @@ export function Inbox() {
     return convs.filter((c) => (filter === 'all' || c.ch === filter) && (c.name || '').toLowerCase().includes(q))
   }, [convs, filter, search])
 
-  // Load conversation list once.
+  // Load conversation list; poll so QR inbound threads appear without refresh.
   useEffect(() => {
     let alive = true
-    apiGet('/conversations')
-      .then((rows) => {
+    let first = true
+    async function load() {
+      try {
+        const rows = await apiGet('/conversations')
         if (!alive) return
-        setConvs(rows)
-        if (rows.length) openConv(rows[0].id, rows)
-      })
-      .catch(() => {})
-      .finally(() => alive && setLoading(false))
-    return () => { alive = false }
+        setConvs((prev) => {
+          const msgsById = Object.fromEntries(prev.map((c) => [c.id, c.msgs]))
+          return rows.map((r) => ({ ...r, msgs: msgsById[r.id] }))
+        })
+        if (first && rows.length) {
+          first = false
+          openConv(rows[0].id, rows)
+        }
+      } catch { /* ignore */ }
+      finally { if (alive) setLoading(false) }
+    }
+    load()
+    const t = setInterval(load, 4000)
+    return () => { alive = false; clearInterval(t) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

@@ -4,6 +4,7 @@ import { T, useLang } from '../../i18n/LangContext'
 import { WHATSAPP, apiGet, apiPut, apiPostAuth, apiDelete, getUser } from '../../lib/api'
 import { Switch, useToast } from './ui'
 import { ConnectionForm, BotSettings } from './ConnectionForm'
+import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 import { DialCard, VoiceWebhookCard, CallHistory } from './VoiceAgent'
 import { WeekChart, ChannelChart, MonthChart, ResolutionChart, LeadsChart } from './Charts'
 
@@ -67,9 +68,38 @@ export function Overview({ summary, usage = {} }) {
 
 /* ===================== WHATSAPP ===================== */
 export function WhatsAppView() {
+  const [provider, setProvider] = useState('qr')
+  const [qrLive, setQrLive] = useState(null)
+  useEffect(() => {
+    apiGet('/me/connections')
+      .then((cs) => {
+        const wa = cs.find((c) => c.channel === 'whatsapp')
+        if (wa?.provider === 'cloud_api') setProvider('cloud_api')
+        else setProvider('qr')
+      })
+      .catch(() => {})
+  }, [])
   return (
     <div className="grid g2">
-      <ConnectionForm channel="whatsapp" />
+      <div className="card">
+        <h3><Icon name="plug-zap" /><T k="conn_title" /></h3>
+        <div className="conn-tabs" style={{ marginBottom: 14 }}>
+          <button className={`conn-tab ${provider === 'qr' ? 'on' : ''}`} onClick={() => setProvider('qr')}>
+            <Icon name="qr-code" size={15} /><T k="qr_tab" />
+          </button>
+          <button className={`conn-tab ${provider === 'cloud_api' ? 'on' : ''}`} onClick={() => setProvider('cloud_api')}>
+            <Icon name="message-circle" size={15} /><T k="meta_tab" />
+          </button>
+        </div>
+        {provider === 'qr' ? (
+          <WhatsAppQrPanel onChange={setQrLive} />
+        ) : (
+          <ConnectionForm channel="whatsapp" embedded />
+        )}
+        {qrLive?.status === 'connected' && provider === 'qr' && (
+          <p className="hint" style={{ marginTop: 10 }}>{qrLive.display_number}</p>
+        )}
+      </div>
       <BotSettings channel="whatsapp" />
     </div>
   )

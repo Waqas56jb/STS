@@ -12,7 +12,7 @@ const isLocal =
 const PROD_API = 'https://sts-production-afc5.up.railway.app/api'
 
 export const API =
-  window.STS_API || import.meta.env.VITE_API_URL || (isLocal ? '/api' : PROD_API)
+  window.STS_API || (isLocal ? '/api' : (import.meta.env.VITE_API_URL || PROD_API))
 
 /** Where an admin-role login is sent (separate Vercel deployment). */
 export const ADMIN_APP_URL =

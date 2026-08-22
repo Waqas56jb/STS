@@ -2,11 +2,16 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import { pool, one, many, tx } from './db.js'
-import { comparePassword, hashPassword, signToken, auth, adminOnly } from './lib/auth.js'
+import { comparePassword, hashPassword, signToken, auth, adminOnly, userFromToken } from './lib/auth.js'
 import { encryptJSON, decryptJSON, maskCredentials, maskValue } from './lib/crypto.js'
-import { CONNECTION_SPEC, CHANNELS, isConnected } from './lib/channels.js'
+import { CONNECTION_SPEC, CHANNELS, isConnected, resolveWhatsAppProvider } from './lib/channels.js'
 import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
-import { sendWhatsAppText, verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
+import { verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
+import { sendWhatsAppByProvider } from './lib/whatsappTransport.js'
+import {
+  attachQrSocket, startQrSession, stopQrSession, logoutQrSession, getQrStatus,
+  restoreQrSessions, setQrInboundHandler, qrEnabled, businessAllowsWhatsApp,
+} from './lib/whatsappQr.js'
 import { generateReply } from './lib/ai.js'
 import { twimlStream, twilioCreateCall, attachVoiceBridge } from './lib/voice.js'
 import http from 'node:http'
@@ -183,6 +188,13 @@ async function handleInboundWhatsApp(businessId, creds, msg) {
   )
   if (!ins) return // duplicate delivery → already handled
 
+  await pool.query(
+    `insert into sts_leads (business_id, name, contact, channel, status)
+     select $1,$2,$3,'whatsapp','new'
+     where not exists (select 1 from sts_leads where business_id=$1 and contact=$3 and channel='whatsapp')`,
+    [businessId, msg.name || msg.from, msg.from],
+  )
+
   // respect auto-reply + human-takeover
   const bot = await one(`select auto_reply from sts_bot_settings where business_id=$1 and channel='whatsapp'`, [businessId])
   const autoReply = bot ? bot.auto_reply : true
@@ -191,13 +203,24 @@ async function handleInboundWhatsApp(businessId, creds, msg) {
   const history = prior.reverse().map((h) => ({ role: h.direction === 'in' ? 'user' : 'assistant', content: h.body }))
   const reply = await generateReply({ businessId, businessName: biz?.name, channel: 'whatsapp', userText: msg.text, history })
 
-  await sendWhatsAppText(creds, msg.from, reply)
+  await sendWhatsAppByProvider({
+    provider: resolveWhatsAppProvider(creds),
+    businessId,
+    to: msg.from,
+    text: reply,
+    creds,
+  })
   await pool.query(
     `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out','ai',$3)`,
     [conv.id, businessId, reply],
   )
   await pool.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, reply])
 }
+
+setQrInboundHandler(async (businessId, msg) => {
+  const creds = (await getChannelCreds(businessId, 'whatsapp')) || {}
+  await handleInboundWhatsApp(businessId, { ...creds, provider: 'qr' }, msg)
+})
 
 /* ================================================================
  * PUBLIC — access requests + plans
@@ -371,7 +394,7 @@ app.get('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
 }))
 
 app.post('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
-  const conv = await one(`select id, business_id from sts_conversations where id=$1`, [req.params.id])
+  const conv = await one(`select id, business_id, channel, customer_handle from sts_conversations where id=$1`, [req.params.id])
   if (!conv || conv.business_id !== biz(req)) return res.status(404).json({ error: 'Not found' })
   const body = String(req.body?.body || '').trim()
   if (!body) return res.status(400).json({ error: 'Empty message' })
@@ -380,6 +403,21 @@ app.post('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
       [conv.id, conv.business_id, req.body?.sender || 'human', body])
     await c.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, body])
   })
+  if (conv.channel === 'whatsapp') {
+    const creds = await getChannelCreds(conv.business_id, 'whatsapp')
+    try {
+      await sendWhatsAppByProvider({
+        provider: resolveWhatsAppProvider(creds),
+        businessId: conv.business_id,
+        to: conv.customer_handle,
+        text: body,
+        creds,
+      })
+    } catch (e) {
+      console.error('[WhatsApp] human send failed:', e.message)
+      return res.status(502).json({ error: 'Message saved but WhatsApp send failed', detail: e.message })
+    }
+  }
   res.json({ ok: true })
 }))
 
@@ -747,6 +785,12 @@ async function saveChannelConnection(businessId, channel, incoming = {}) {
     if (String(v).trim() === '' && f.secret) continue // don't wipe a secret with blank
     merged[f.key] = v
   }
+  if (channel === 'whatsapp') {
+    if (incoming.provider === 'qr' || incoming.provider === 'cloud_api') merged.provider = incoming.provider
+    else if (String(incoming.phone_number_id || '').trim() && String(incoming.access_token || '').trim()) {
+      merged.provider = 'cloud_api'
+    }
+  }
   const connected = isConnected(channel, merged)
   const extRef = merged[CONNECTION_SPEC[channel].extRef] || null
   await pool.query(
@@ -774,8 +818,38 @@ app.put('/api/me/connections/:channel', auth, wrap(async (req, res) => {
 app.delete('/api/me/connections/:channel', auth, wrap(async (req, res) => {
   const { channel } = req.params
   if (!CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' })
+  if (channel === 'whatsapp') await stopQrSession(biz(req), { wipe: true }).catch(() => {})
   await pool.query(`delete from sts_channel_configs where business_id=$1 and channel=$2`, [biz(req), channel])
   res.json({ ok: true })
+}))
+
+/* ---------- WhatsApp QR (client — own business from JWT) ---------- */
+async function qrStartFor(businessId, res) {
+  if (!qrEnabled()) return res.status(503).json({ error: 'WhatsApp QR is disabled on this server' })
+  if (!(await businessAllowsWhatsApp(businessId))) return res.status(403).json({ error: 'WhatsApp is not on this plan' })
+  const status = await startQrSession(businessId)
+  res.json({ success: true, ...status })
+}
+function qrStatusFor(businessId, res) {
+  res.json({ success: true, ...getQrStatus(businessId) })
+}
+
+app.post('/api/me/whatsapp/qr/start', auth, wrap(async (req, res) => {
+  if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
+  await qrStartFor(biz(req), res)
+}))
+app.get('/api/me/whatsapp/qr/status', auth, wrap(async (req, res) => {
+  if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
+  qrStatusFor(biz(req), res)
+}))
+app.post('/api/me/whatsapp/qr/logout', auth, wrap(async (req, res) => {
+  if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
+  res.json({ success: true, ...(await logoutQrSession(biz(req))) })
+}))
+app.post('/api/me/whatsapp/qr/reconnect', auth, wrap(async (req, res) => {
+  if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
+  await stopQrSession(biz(req), { wipe: false }).catch(() => {})
+  await qrStartFor(biz(req), res)
 }))
 
 // ADMIN: manage any business's connections
@@ -794,6 +868,34 @@ app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(
   if (!bizRow) return res.status(404).json({ error: 'Business not found' })
   const connected = await saveChannelConnection(id, channel, req.body?.fields || {})
   res.json({ ok: true, connected })
+}))
+
+async function adminBizOr404(id, res) {
+  const row = await one(`select id from sts_businesses where id=$1`, [id])
+  if (!row) { res.status(404).json({ error: 'Business not found' }); return null }
+  return row.id
+}
+
+app.post('/api/admin/businesses/:id/whatsapp/qr/start', auth, adminOnly, wrap(async (req, res) => {
+  const id = await adminBizOr404(req.params.id, res)
+  if (!id) return
+  await qrStartFor(id, res)
+}))
+app.get('/api/admin/businesses/:id/whatsapp/qr/status', auth, adminOnly, wrap(async (req, res) => {
+  const id = await adminBizOr404(req.params.id, res)
+  if (!id) return
+  qrStatusFor(id, res)
+}))
+app.post('/api/admin/businesses/:id/whatsapp/qr/logout', auth, adminOnly, wrap(async (req, res) => {
+  const id = await adminBizOr404(req.params.id, res)
+  if (!id) return
+  res.json({ success: true, ...(await logoutQrSession(id)) })
+}))
+app.post('/api/admin/businesses/:id/whatsapp/qr/reconnect', auth, adminOnly, wrap(async (req, res) => {
+  const id = await adminBizOr404(req.params.id, res)
+  if (!id) return
+  await stopQrSession(id, { wipe: false }).catch(() => {})
+  await qrStartFor(id, res)
 }))
 
 /* ---------- ADMIN: per-business knowledge base (chatbot training) ---------- */
@@ -842,9 +944,15 @@ async function connectionsFor(businessId, reveal = false) {
     const row = byCh[channel]
     let creds = {}
     try { creds = row ? decryptJSON(row.secrets_enc) : {} } catch { creds = {} }
+    let connected = row?.connected || false
+    if (channel === 'whatsapp' && creds.provider === 'qr') {
+      connected = getQrStatus(businessId).status === 'connected'
+    }
     return {
       channel,
-      connected: row?.connected || false,
+      connected,
+      provider: channel === 'whatsapp' ? resolveWhatsAppProvider(creds) : undefined,
+      display_number: creds.display_number || '',
       fields: reveal ? creds : maskCredentials(creds),
       updated_at: row?.updated_at || null,
     }
@@ -1086,8 +1194,25 @@ app.put('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req
 }))
 app.delete('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req, res) => {
   if (!CHANNELS.includes(req.params.channel)) return res.status(400).json({ error: 'Unknown channel' })
-  await pool.query(`delete from sts_channel_configs where business_id=$1 and channel=$2`, [await platformBusinessId(), req.params.channel])
+  const pid = await platformBusinessId()
+  if (req.params.channel === 'whatsapp') await stopQrSession(pid, { wipe: true }).catch(() => {})
+  await pool.query(`delete from sts_channel_configs where business_id=$1 and channel=$2`, [pid, req.params.channel])
   res.json({ ok: true })
+}))
+
+app.post('/api/admin/agent/whatsapp/qr/start', auth, adminOnly, wrap(async (_req, res) => {
+  await qrStartFor(await platformBusinessId(), res)
+}))
+app.get('/api/admin/agent/whatsapp/qr/status', auth, adminOnly, wrap(async (_req, res) => {
+  qrStatusFor(await platformBusinessId(), res)
+}))
+app.post('/api/admin/agent/whatsapp/qr/logout', auth, adminOnly, wrap(async (_req, res) => {
+  res.json({ success: true, ...(await logoutQrSession(await platformBusinessId())) })
+}))
+app.post('/api/admin/agent/whatsapp/qr/reconnect', auth, adminOnly, wrap(async (_req, res) => {
+  const pid = await platformBusinessId()
+  await stopQrSession(pid, { wipe: false }).catch(() => {})
+  await qrStartFor(pid, res)
 }))
 
 app.get('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) => {
@@ -1119,4 +1244,22 @@ const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/voice-stream' })
 wss.on('connection', (ws) => attachVoiceBridge(ws))
 
-server.listen(PORT, () => console.log(`STS API + voice WS on http://localhost:${PORT}`))
+// Authenticated WhatsApp QR status stream (?token=JWT). Persistent host only (not Vercel).
+const waWss = new WebSocketServer({ server, path: '/wa-events' })
+waWss.on('connection', async (ws, req) => {
+  let token = ''
+  try { token = new URL(req.url, 'http://localhost').searchParams.get('token') || '' } catch { /* ignore */ }
+  const user = await userFromToken(token)
+  if (!user) { ws.close(4401, 'unauthorized'); return }
+  attachQrSocket(ws, user)
+  const bid = user.role === 'admin' ? null : user.business_id
+  if (bid) {
+    const st = getQrStatus(bid)
+    try { ws.send(JSON.stringify({ business_id: bid, provider: 'qr', type: 'whatsapp:status', ...st })) } catch { /* ignore */ }
+  }
+})
+
+server.listen(PORT, () => {
+  console.log(`STS API + voice WS + WhatsApp QR on http://localhost:${PORT}`)
+  restoreQrSessions().catch((e) => console.error('[WhatsApp QR] restore failed', e.message))
+})

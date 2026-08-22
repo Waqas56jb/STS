@@ -4,6 +4,7 @@ import { useAdminT } from '../../i18n/admin'
 import { apiGet, apiPut, apiPostAuth, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
 import { KbEditModal } from './KbEditModal'
+import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 
 /**
  * Per-business channel connections + chatbot training, in one modal.
@@ -26,6 +27,7 @@ export function ConnectionModal({ business, onClose }) {
   const [channel, setChannel] = useState('whatsapp')
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+  const [waProvider, setWaProvider] = useState('qr')
 
   // training state
   const [kb, setKb] = useState([])
@@ -46,7 +48,12 @@ export function ConnectionModal({ business, onClose }) {
       apiGet('/admin/connection-spec'),
       apiGet(`/admin/businesses/${business.id}/connections`),
     ])
-      .then(([sp, cs]) => { setSpec(sp); setConns(cs) })
+      .then(([sp, cs]) => {
+        setSpec(sp)
+        setConns(cs)
+        const wa = (cs || []).find((c) => c.channel === 'whatsapp')
+        setWaProvider(wa?.provider === 'cloud_api' ? 'cloud_api' : 'qr')
+      })
       .catch(() => {})
     loadKb()
   }, [business])
@@ -156,7 +163,22 @@ export function ConnectionModal({ business, onClose }) {
                   <span style={{ fontSize: 12, color: 'var(--mut)' }}>{spec[channel].label}</span>
                 </div>
 
-                {spec[channel].fields.map((field) => (
+                {channel === 'whatsapp' && (
+                  <div className="conn-tabs" style={{ margin: '8px 0 12px' }}>
+                    <button className={`conn-tab ${waProvider === 'qr' ? 'on' : ''}`} onClick={() => setWaProvider('qr')}>
+                      {isAr ? 'رمز QR' : 'QR / Linked Device'}
+                    </button>
+                    <button className={`conn-tab ${waProvider === 'cloud_api' ? 'on' : ''}`} onClick={() => setWaProvider('cloud_api')}>
+                      Meta Cloud API
+                    </button>
+                  </div>
+                )}
+
+                {channel === 'whatsapp' && waProvider === 'qr' && (
+                  <WhatsAppQrPanel base={`/admin/businesses/${business.id}/whatsapp/qr`} />
+                )}
+
+                {(channel !== 'whatsapp' || waProvider === 'cloud_api') && spec[channel].fields.map((field) => (
                   <div className="field" key={field.key}>
                     <label>{field.label}{spec[channel].required.includes(field.key) && ' *'}</label>
                     {field.type === 'select' ? (
@@ -176,15 +198,19 @@ export function ConnectionModal({ business, onClose }) {
                   </div>
                 ))}
 
-                <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }} onClick={save} disabled={saving}>
-                  <Icon name="save" size={16} />
-                  {saving ? (isAr ? 'جارٍ الحفظ…' : 'Saving…') : (isAr ? 'حفظ الاتصال' : 'Save connection')}
-                </button>
-                <p style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 10, textAlign: 'center' }}>
-                  {isAr
-                    ? 'اترك حقل السر فارغاً للإبقاء على القيمة المحفوظة.'
-                    : 'Leave a secret field blank to keep the stored value.'}
-                </p>
+                {(channel !== 'whatsapp' || waProvider === 'cloud_api') && (
+                  <>
+                    <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }} onClick={save} disabled={saving}>
+                      <Icon name="save" size={16} />
+                      {saving ? (isAr ? 'جارٍ الحفظ…' : 'Saving…') : (isAr ? 'حفظ الاتصال' : 'Save connection')}
+                    </button>
+                    <p style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 10, textAlign: 'center' }}>
+                      {isAr
+                        ? 'اترك حقل السر فارغاً للإبقاء على القيمة المحفوظة.'
+                        : 'Leave a secret field blank to keep the stored value.'}
+                    </p>
+                  </>
+                )}
               </>
             )}
           </>

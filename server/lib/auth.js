@@ -53,3 +53,23 @@ export function adminOnly(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required' })
   next()
 }
+
+/** Resolve a user from a raw JWT (WebSocket / query-token auth). */
+export async function userFromToken(token) {
+  if (!token) return null
+  try {
+    const payload = jwt.verify(token, JWT_SECRET)
+    const user = await one(
+      `select u.id, u.email, u.name, u.role, u.business_id,
+              b.name as business_name, b.plan_code, b.status as business_status
+         from sts_users u
+         left join sts_businesses b on b.id = u.business_id
+        where u.id = $1`,
+      [payload.id],
+    )
+    if (!user || user.business_status === 'suspended') return null
+    return user
+  } catch {
+    return null
+  }
+}

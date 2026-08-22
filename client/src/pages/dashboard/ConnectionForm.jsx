@@ -13,7 +13,7 @@ import { Switch, useToast } from './ui'
  * pre-fills them (secrets hidden behind an eye toggle) and they stay visible and
  * editable until the user changes or disconnects them.
  */
-export function ConnectionForm({ channel }) {
+export function ConnectionForm({ channel, embedded = false }) {
   const { isAr } = useLang()
   const toast = useToast()
   const [spec, setSpec] = useState(null)
@@ -71,8 +71,8 @@ export function ConnectionForm({ channel }) {
 
   if (!spec || !spec[channel]) {
     return (
-      <div className="card">
-        <h3><Icon name="plug-zap" /><T k="conn_title" /></h3>
+      <div className={embedded ? '' : 'card'}>
+        {!embedded && <h3><Icon name="plug-zap" /><T k="conn_title" /></h3>}
         <div style={{ color: 'var(--mut)', fontSize: 13, padding: 8 }}>…</div>
       </div>
     )
@@ -80,8 +80,8 @@ export function ConnectionForm({ channel }) {
 
   const s = spec[channel]
   return (
-    <div className="card">
-      <h3><Icon name="plug-zap" /><T k="conn_title" /></h3>
+    <div className={embedded ? '' : 'card'}>
+      {!embedded && <h3><Icon name="plug-zap" /><T k="conn_title" /></h3>}
       <div className="row">
         <div>
           <b>{s.label.split(' — ')[0]}</b>
