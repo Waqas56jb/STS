@@ -17,7 +17,7 @@ export const API =
 export const CLIENT_APP_URL =
   import.meta.env.VITE_CLIENT_URL || (isLocal ? '/' : 'https://sts-blond.vercel.app/')
 
-export const WHATSAPP = 'https://wa.me/96500000000'
+export const WHATSAPP = 'https://wa.me/96551022389'
 
 const token = () => localStorage.getItem('sts_token')
 

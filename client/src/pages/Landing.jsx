@@ -490,7 +490,7 @@ export default function Landing() {
             <div>
               <h5><T k="ft_ct" /></h5>
               <a href="mailto:sts@shgardiauto.com">sts@shgardiauto.com</a>
-              <a href={WHATSAPP}>+965 0000 0000</a>
+              <a href={WHATSAPP}>+965 510 22389</a>
               <a href="#"><T k="ft_kw" /></a>
             </div>
           </div>

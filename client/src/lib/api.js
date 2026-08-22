@@ -18,7 +18,7 @@ export const API =
 export const ADMIN_APP_URL =
   import.meta.env.VITE_ADMIN_URL || (isLocal ? '/admin/' : 'https://sts-admin-roan.vercel.app/')
 
-export const WHATSAPP = 'https://wa.me/96500000000'
+export const WHATSAPP = 'https://wa.me/96551022389'
 
 const token = () => localStorage.getItem('sts_token')
 
