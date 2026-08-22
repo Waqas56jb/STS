@@ -135,7 +135,7 @@ export function TrainingStudio({
   useEffect(() => { setAgent(defaultChannel) }, [defaultChannel])
 
   const shown = sources.filter((s) => {
-    if (s.meta === PROFILE_META) return false
+    if (s.meta === PROFILE_META || s.meta === '__agent_rules__') return false
     return (s.channel || 'all') === agent
   })
 
@@ -151,13 +151,18 @@ export function TrainingStudio({
         type: 'qa', title: profile.name || t('tr_biz_title'), content,
         meta: PROFILE_META, channel: 'all',
       }
-      if (profileId) await endpoints.updateKnowledge(profileId, body)
-      else {
+      if (profileId) {
+        try { await endpoints.updateKnowledge(profileId, body) }
+        catch {
+          const row = await endpoints.createKnowledge(body)
+          setProfileId(row.id)
+        }
+      } else {
         const row = await endpoints.createKnowledge(body)
         setProfileId(row.id)
       }
       await withLearn(async () => { toast(); await load() })
-    } catch { toast(t('save_failed')) }
+    } catch (e) { toast(e.message || t('save_failed')) }
     finally { setSaving('') }
   }
 
@@ -167,7 +172,7 @@ export function TrainingStudio({
       const channels = agent === 'all' ? ['whatsapp', 'instagram', 'website', 'voice'] : [agent]
       for (const ch of channels) await endpoints.saveBot(ch, bot)
       await withLearn(async () => { toast() })
-    } catch { toast(t('save_failed')) }
+    } catch (e) { toast(e.message || t('save_failed')) }
     finally { setSaving('') }
   }
 

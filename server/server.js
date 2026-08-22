@@ -13,6 +13,7 @@ import {
   restoreQrSessions, setQrInboundHandler, qrEnabled, businessAllowsWhatsApp,
 } from './lib/whatsappQr.js'
 import { generateReply } from './lib/ai.js'
+import { ensureTrainingSchema } from './lib/ensureSchema.js'
 import multer from 'multer'
 import { extractDocumentText, isSupportedTrainingFile } from './lib/extractText.js'
 import { twimlStream, twilioCreateCall, attachVoiceBridge } from './lib/voice.js'
@@ -49,7 +50,8 @@ app.use(
 
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   console.error(req.method, req.path, '→', e.message)
-  res.status(500).json({ error: 'Server error' })
+  const status = e.status || (e.code === '23502' || e.code === '23503' ? 400 : 500)
+  res.status(status).json({ error: e.status ? e.message : (e.message || 'Server error') })
 })
 const biz = (req) => req.user.business_id
 const period = () => {
@@ -443,18 +445,64 @@ const BOT_DEFAULTS = { auto_reply: true, human_handoff: true, after_hours_only: 
 const toBotChannel = (c) => (c === 'website' ? 'web' : c)
 
 async function upsertBotSettings(businessId, channel, b = {}) {
+  if (!businessId) throw Object.assign(new Error('No business on this account'), { status: 400 })
   const ch = toBotChannel(channel)
-  return one(
-    `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, rules, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
-     on conflict (business_id, channel) do update set
-       auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
-       greeting=excluded.greeting, tone=excluded.tone, language=excluded.language,
-       widget_color=excluded.widget_color, widget_position=excluded.widget_position, rules=excluded.rules, updated_at=now()
-     returning *`,
-    [businessId, ch, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false,
-     b.greeting || '', b.tone || 'friendly', b.language || 'auto', b.widget_color || '#0FBE8F', b.widget_position || 'bottom_right', b.rules || ''],
+  const args = [businessId, ch, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false,
+    b.greeting || '', b.tone || 'friendly', b.language || 'auto', b.widget_color || '#0FBE8F', b.widget_position || 'bottom_right', b.rules || '']
+  let row
+  try {
+    row = await one(
+      `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, rules, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+       on conflict (business_id, channel) do update set
+         auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
+         greeting=excluded.greeting, tone=excluded.tone, language=excluded.language,
+         widget_color=excluded.widget_color, widget_position=excluded.widget_position, rules=excluded.rules, updated_at=now()
+       returning *`,
+      args,
+    )
+  } catch (e) {
+    if (e.code !== '42703') throw e
+    row = await one(
+      `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+       on conflict (business_id, channel) do update set
+         auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
+         greeting=excluded.greeting, tone=excluded.tone, language=excluded.language,
+         widget_color=excluded.widget_color, widget_position=excluded.widget_position, updated_at=now()
+       returning *`,
+      args.slice(0, 10),
+    )
+  }
+  await persistAgentRulesKnowledge(businessId, channel, b).catch((err) => console.error('persist rules kb:', err.message))
+  return row
+}
+
+const RULES_META = '__agent_rules__'
+
+async function persistAgentRulesKnowledge(businessId, channel, b = {}) {
+  const kbCh = channel === 'web' ? 'website' : kbChannel(channel)
+  const content = [
+    b.greeting && `Greeting: ${b.greeting}`,
+    b.tone && `Tone: ${b.tone}`,
+    b.language && `Language: ${b.language}`,
+    b.rules && `Rules:\n${b.rules}`,
+  ].filter(Boolean).join('\n')
+  if (!content) return
+  const title = kbCh === 'all' ? 'Shared agent rules' : `${kbCh} agent rules`
+  const existing = await one(
+    `select id from sts_knowledge_sources where business_id=$1 and meta=$2 and channel=$3`,
+    [businessId, RULES_META, kbCh],
   )
+  if (existing) {
+    await one(`update sts_knowledge_sources set title=$2, content=$3, status='trained' where id=$1 returning id`, [existing.id, title, content])
+  } else {
+    await one(
+      `insert into sts_knowledge_sources (business_id, type, title, content, meta, channel, status)
+       values ($1,'qa',$2,$3,$4,$5,'trained') returning id`,
+      [businessId, title, content, RULES_META, kbCh],
+    )
+  }
 }
 
 // Bot settings
@@ -465,6 +513,7 @@ app.get('/api/bots/:channel', auth, wrap(async (req, res) => {
 }))
 
 app.put('/api/bots/:channel', auth, wrap(async (req, res) => {
+  if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
   res.json(await upsertBotSettings(biz(req), req.params.channel, req.body || {}))
 }))
 
@@ -494,6 +543,7 @@ app.get('/api/knowledge', auth, wrap(async (req, res) => {
 }))
 
 app.post('/api/knowledge', auth, wrap(async (req, res) => {
+  if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
   const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
@@ -1328,7 +1378,11 @@ waWss.on('connection', async (ws, req) => {
   }
 })
 
-server.listen(PORT, () => {
-  console.log(`STS API + voice WS + WhatsApp QR on http://localhost:${PORT}`)
-  restoreQrSessions().catch((e) => console.error('[WhatsApp QR] restore failed', e.message))
-})
+ensureTrainingSchema()
+  .catch((e) => console.error('training schema ensure failed:', e.message))
+  .finally(() => {
+    server.listen(PORT, () => {
+      console.log(`STS API + voice WS + WhatsApp QR on http://localhost:${PORT}`)
+      restoreQrSessions().catch((e) => console.error('[WhatsApp QR] restore failed', e.message))
+    })
+  })

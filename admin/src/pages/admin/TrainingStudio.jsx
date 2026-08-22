@@ -148,7 +148,7 @@ export function TrainingStudio({
   useEffect(() => { setAgent(defaultChannel) }, [defaultChannel])
 
   const shown = sources.filter((s) => {
-    if (s.meta === PROFILE_META) return false
+    if (s.meta === PROFILE_META || s.meta === '__agent_rules__') return false
     return (s.channel || 'all') === agent
   })
 
@@ -170,7 +170,7 @@ export function TrainingStudio({
         setProfileId(row.id)
       }
       await withLearn(async () => { toast(); await load() })
-    } catch { toast(t('save_failed')) }
+    } catch (e) { toast(e.message || t('save_failed')) }
     finally { setSaving('') }
   }
 
@@ -180,7 +180,7 @@ export function TrainingStudio({
       const channels = agent === 'all' ? ['whatsapp', 'instagram', 'website', 'voice'] : [agent]
       for (const ch of channels) await endpoints.saveBot(ch, bot)
       await withLearn(async () => { toast() })
-    } catch { toast(t('save_failed')) }
+    } catch (e) { toast(e.message || t('save_failed')) }
     finally { setSaving('') }
   }
 
