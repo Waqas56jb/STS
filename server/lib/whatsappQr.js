@@ -52,15 +52,19 @@ function sessionDir(businessId) {
 
 function emit(businessId, payload) {
   const body = JSON.stringify({ business_id: businessId, provider: 'qr', ...payload })
+  const bid = String(businessId)
   for (const s of sockets) {
-    if (!s.isAdmin && s.businessId !== businessId) continue
+    const allowed = s.allowed instanceof Set ? s.allowed.has(bid) : s.businessId === businessId
+    if (!allowed) continue
     if (s.ws.readyState !== 1) continue
     try { s.ws.send(body) } catch { /* ignore */ }
   }
 }
 
-export function attachQrSocket(ws, user) {
-  const rec = { ws, businessId: user.business_id || null, isAdmin: user.role === 'admin' }
+export function attachQrSocket(ws, user, allowedIds = []) {
+  const allowed = new Set((allowedIds || []).map(String).filter(Boolean))
+  if (user?.business_id) allowed.add(String(user.business_id))
+  const rec = { ws, businessId: user.business_id || null, isAdmin: user.role === 'admin', allowed }
   sockets.add(rec)
   ws.on('close', () => sockets.delete(rec))
 }

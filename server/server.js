@@ -14,6 +14,10 @@ import {
 } from './lib/whatsappQr.js'
 import { generateReply } from './lib/ai.js'
 import { ensureTrainingSchema } from './lib/ensureSchema.js'
+import {
+  ensureUserWorkspace, adminOwns, customerBusinessIds, allowedBusinessIds,
+  emailTaken, idList, isPlatformAdmin,
+} from './lib/tenant.js'
 import multer from 'multer'
 import { extractDocumentText, isSupportedTrainingFile } from './lib/extractText.js'
 import { twimlStream, twilioCreateCall, attachVoiceBridge } from './lib/voice.js'
@@ -53,7 +57,26 @@ const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   const status = e.status || (e.code === '23502' || e.code === '23503' ? 400 : 500)
   res.status(status).json({ error: e.status ? e.message : (e.message || 'Server error') })
 })
-const biz = (req) => req.user.business_id
+const biz = (req) => {
+  const id = req.user?.business_id
+  if (!id) {
+    const e = new Error('No workspace on this account')
+    e.status = 403
+    throw e
+  }
+  return id
+}
+const requireBiz = (req, res, next) => {
+  if (!req.user?.business_id) return res.status(403).json({ error: 'No workspace on this account' })
+  next()
+}
+const adminOwnsBiz = (req, res, next) => {
+  adminOwns(req.user, req.params.id).then((ok) => {
+    if (!ok) return res.status(404).json({ error: 'Not found' })
+    next()
+  }).catch(next)
+}
+const adminWorkspace = (req) => req.user.business_id
 const period = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -86,6 +109,7 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   if (user.business_status === 'suspended')
     return res.status(403).json({ error: 'Account suspended — contact STS support' })
 
+  await ensureUserWorkspace(user)
   await pool.query('update sts_users set last_login = now() where id = $1', [user.id])
   res.json({
     token: signToken(user),
@@ -607,12 +631,13 @@ app.get('/api/me/connections', auth, wrap(async (req, res) => {
 /* ================================================================
  * ADMIN
  * ============================================================== */
-app.get('/api/admin/summary', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/summary', auth, adminOnly, wrap(async (req, res) => {
+  const ids = idList(await customerBusinessIds(req.user))
   const [mrr, paid, free, overdue] = await Promise.all([
-    one(`select coalesce(sum(mrr),0)::numeric mrr from sts_businesses where status='paid'`),
-    one(`select count(*)::int n from sts_businesses where status='paid'`),
-    one(`select count(*)::int n from sts_businesses where status in ('free','suspended')`),
-    one(`select count(*)::int n, coalesce(sum(amount_kwd),0)::numeric amt from sts_invoices where status='overdue'`),
+    one(`select coalesce(sum(mrr),0)::numeric mrr from sts_businesses where id=any($1::uuid[]) and status='paid'`, [ids]),
+    one(`select count(*)::int n from sts_businesses where id=any($1::uuid[]) and status='paid'`, [ids]),
+    one(`select count(*)::int n from sts_businesses where id=any($1::uuid[]) and status in ('free','suspended')`, [ids]),
+    one(`select count(*)::int n, coalesce(sum(amount_kwd),0)::numeric amt from sts_invoices where business_id=any($1::uuid[]) and status='overdue'`, [ids]),
   ])
   res.json({
     mrr: Number(mrr.mrr),
@@ -623,7 +648,8 @@ app.get('/api/admin/summary', auth, adminOnly, wrap(async (_req, res) => {
   })
 }))
 
-app.get('/api/admin/requests', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/requests', auth, adminOnly, wrap(async (req, res) => {
+  if (!isPlatformAdmin(req.user)) return res.json([])
   const rows = await many(`select * from sts_access_requests where status='new' order by created_at desc`)
   res.json(rows.map((r) => ({
     id: r.id, business_name: r.business_name, contact_name: r.contact_name, email: r.email,
@@ -632,18 +658,20 @@ app.get('/api/admin/requests', auth, adminOnly, wrap(async (_req, res) => {
 }))
 
 app.post('/api/admin/requests/:id/approve', auth, adminOnly, wrap(async (req, res) => {
+  if (!isPlatformAdmin(req.user)) return res.status(404).json({ error: 'Not found' })
   const reqRow = await one(`select * from sts_access_requests where id=$1`, [req.params.id])
   if (!reqRow) return res.status(404).json({ error: 'Not found' })
+  if (await emailTaken(reqRow.email)) return res.status(409).json({ error: 'That email already belongs to another account' })
   const created = await tx(async (c) => {
     const b = (await c.query(
-      `insert into sts_businesses (name, whatsapp, plan_code, status) values ($1,$2,'free','free') returning id`,
-      [reqRow.business_name, reqRow.whatsapp],
+      `insert into sts_businesses (name, whatsapp, plan_code, status, owner_user_id) values ($1,$2,'free','free',$3) returning id`,
+      [reqRow.business_name, reqRow.whatsapp, req.user.id],
     )).rows[0]
     const plainPw = 'Sts@2026!'
     const tempPw = await hashPassword(plainPw)
     await c.query(
       `insert into sts_users (email, name, role, business_id, password_hash, password_enc)
-       values ($1,$2,'client',$3,$4,$5) on conflict (email) do update set business_id=excluded.business_id`,
+       values ($1,$2,'client',$3,$4,$5)`,
       [reqRow.email.toLowerCase(), reqRow.contact_name || reqRow.business_name, b.id, tempPw, encryptJSON({ p: plainPw })],
     )
     await c.query(`update sts_access_requests set status='approved' where id=$1`, [req.params.id])
@@ -653,19 +681,23 @@ app.post('/api/admin/requests/:id/approve', auth, adminOnly, wrap(async (req, re
 }))
 
 app.post('/api/admin/requests/:id/reject', auth, adminOnly, wrap(async (req, res) => {
+  if (!isPlatformAdmin(req.user)) return res.status(404).json({ error: 'Not found' })
   await pool.query(`update sts_access_requests set status='rejected' where id=$1`, [req.params.id])
   res.json({ ok: true })
 }))
 
 const chToShort = (channels) => (channels || []) // ['wa','ig','vc'] already
 
-app.get('/api/admin/businesses', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
+  const ids = idList(await customerBusinessIds(req.user))
   const rows = await many(
     `select b.id, b.name, b.plan_code, b.mrr, b.status, b.channels,
             p.name as plan_name,
             (select email from sts_users u where u.business_id=b.id and u.role='client' order by created_at limit 1) as email
        from sts_businesses b left join sts_plans p on p.code=b.plan_code
+      where b.id=any($1::uuid[])
       order by b.created_at`,
+    [ids],
   )
   res.json(rows.map((r) => ({
     id: r.id, biz: r.name, email: r.email || '—', plan: r.plan_name || r.plan_code,
@@ -676,20 +708,19 @@ app.get('/api/admin/businesses', auth, adminOnly, wrap(async (_req, res) => {
 app.post('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
   const { business_name, owner_name, email, whatsapp, plan_code, password } = req.body || {}
   if (!business_name || !email) return res.status(400).json({ error: 'business_name and email required' })
+  if (await emailTaken(email)) return res.status(409).json({ error: 'That email already belongs to another account' })
   const plan = await one(`select * from sts_plans where code=$1`, [plan_code || 'free'])
   const status = plan_code === 'free' || !plan ? 'free' : 'paid'
   const pw = (password && String(password).trim()) || 'Sts@2026!'
   const created = await tx(async (c) => {
     const b = (await c.query(
-      `insert into sts_businesses (name, whatsapp, plan_code, status, mrr, channels)
-       values ($1,$2,$3,$4,$5,$6) returning *`,
-      [business_name, whatsapp || null, plan?.code || 'free', status, plan?.price_kwd || 0, plan?.channels || ['wa']],
+      `insert into sts_businesses (name, whatsapp, plan_code, status, mrr, channels, owner_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7) returning *`,
+      [business_name, whatsapp || null, plan?.code || 'free', status, plan?.price_kwd || 0, plan?.channels || ['wa'], req.user.id],
     )).rows[0]
     const hash = await hashPassword(pw)
-    // store both a one-way hash (for login) and a reversible copy (so admins can reveal it)
     await c.query(
-      `insert into sts_users (email, name, role, business_id, password_hash, password_enc) values ($1,$2,'client',$3,$4,$5)
-       on conflict (email) do update set business_id=excluded.business_id, password_hash=excluded.password_hash, password_enc=excluded.password_enc`,
+      `insert into sts_users (email, name, role, business_id, password_hash, password_enc) values ($1,$2,'client',$3,$4,$5)`,
       [email.toLowerCase(), owner_name || business_name, b.id, hash, encryptJSON({ p: pw })],
     )
     return b
@@ -697,7 +728,7 @@ app.post('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
   res.status(201).json({ ok: true, id: created.id, email: email.toLowerCase(), password: pw })
 }))
 
-app.patch('/api/admin/businesses/:id', auth, adminOnly, wrap(async (req, res) => {
+app.patch('/api/admin/businesses/:id', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const sets = [], params = [req.params.id]
   for (const f of ['status', 'plan_code', 'mrr', 'name']) {
     if (req.body[f] != null) { params.push(req.body[f]); sets.push(`${f}=$${params.length}`) }
@@ -709,7 +740,7 @@ app.patch('/api/admin/businesses/:id', auth, adminOnly, wrap(async (req, res) =>
 // Reveal a customer's login credentials (admin only). Password is decrypted
 // from password_enc; older accounts created before this feature return null,
 // in which case the admin can reset it below.
-app.get('/api/admin/businesses/:id/credential', auth, adminOnly, wrap(async (req, res) => {
+app.get('/api/admin/businesses/:id/credential', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const u = await one(
     `select email, password_enc from sts_users where business_id=$1 and role='client' order by created_at limit 1`,
     [req.params.id],
@@ -721,7 +752,7 @@ app.get('/api/admin/businesses/:id/credential', auth, adminOnly, wrap(async (req
 }))
 
 // Set a new login password for the customer (updates both hash + reversible copy).
-app.post('/api/admin/businesses/:id/reset-password', auth, adminOnly, wrap(async (req, res) => {
+app.post('/api/admin/businesses/:id/reset-password', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const pw = (req.body?.password && String(req.body.password).trim()) || ''
   if (pw.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' })
   const u = await one(
@@ -737,15 +768,22 @@ app.post('/api/admin/businesses/:id/reset-password', auth, adminOnly, wrap(async
 }))
 
 // Delete a customer account + business (all related rows cascade).
-app.delete('/api/admin/businesses/:id', auth, adminOnly, wrap(async (req, res) => {
+app.delete('/api/admin/businesses/:id', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
+  if (String(req.params.id) === String(req.user.business_id)) {
+    return res.status(400).json({ error: 'Cannot delete your own workspace' })
+  }
   await pool.query(`delete from sts_businesses where id=$1`, [req.params.id])
   res.json({ ok: true })
 }))
 
-app.get('/api/admin/payments', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
+  const ids = idList(await customerBusinessIds(req.user))
   const rows = await many(
     `select p.reference, p.method, p.amount_kwd, p.status, p.created_at, b.name as biz
-       from sts_payments p left join sts_businesses b on b.id=p.business_id order by p.created_at desc`,
+       from sts_payments p left join sts_businesses b on b.id=p.business_id
+      where p.business_id=any($1::uuid[])
+      order by p.created_at desc`,
+    [ids],
   )
   res.json(rows.map((r) => ({
     ref: r.reference, biz: r.biz, meth: methodLabel(r.method), amt: kwd(r.amount_kwd), date: dmy(r.created_at), st: r.status,
@@ -754,6 +792,7 @@ app.get('/api/admin/payments', auth, adminOnly, wrap(async (_req, res) => {
 
 app.post('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
   const { business_id, reference, method, amount, status } = req.body || {}
+  if (!(await adminOwns(req.user, business_id))) return res.status(404).json({ error: 'Not found' })
   const row = await one(
     `insert into sts_payments (business_id, reference, method, amount_kwd, status) values ($1,$2,$3,$4,$5) returning id`,
     [business_id, reference, method || 'knet', amount || 0, status || 'paid'],
@@ -761,10 +800,14 @@ app.post('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
   res.status(201).json({ ok: true, id: row.id })
 }))
 
-app.get('/api/admin/invoices', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {
+  const ids = idList(await customerBusinessIds(req.user))
   const rows = await many(
     `select i.number, i.description, i.amount_kwd, i.status, coalesce(i.due_at,i.issued_at) d, b.name as biz
-       from sts_invoices i left join sts_businesses b on b.id=i.business_id order by coalesce(i.due_at,i.issued_at) desc`,
+       from sts_invoices i left join sts_businesses b on b.id=i.business_id
+      where i.business_id=any($1::uuid[])
+      order by coalesce(i.due_at,i.issued_at) desc`,
+    [ids],
   )
   res.json(rows.map((r) => ({
     no: r.number, biz: r.biz, desc: r.description, amt: kwd(r.amount_kwd), due: dmy(r.d), st: r.status,
@@ -773,6 +816,7 @@ app.get('/api/admin/invoices', auth, adminOnly, wrap(async (_req, res) => {
 
 app.post('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {
   const { business_id, number, description, amount, due_at } = req.body || {}
+  if (!(await adminOwns(req.user, business_id))) return res.status(404).json({ error: 'Not found' })
   const row = await one(
     `insert into sts_invoices (business_id, number, description, amount_kwd, status, due_at)
      values ($1,$2,$3,$4,'unpaid',$5) returning id`,
@@ -781,39 +825,40 @@ app.post('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {
   res.status(201).json({ ok: true, id: row.id })
 }))
 
-app.get('/api/admin/plans', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/plans', auth, adminOnly, wrap(async (req, res) => {
+  const ids = idList(await customerBusinessIds(req.user))
   const rows = await many(
-    `select p.*, (select count(*)::int from sts_businesses b where b.plan_code=p.code) subs
+    `select p.*, (select count(*)::int from sts_businesses b where b.plan_code=p.code and b.id=any($1::uuid[])) subs
        from sts_plans p order by p.sort`,
+    [ids],
   )
   res.json(rows.map((p) => ({
     name: p.name, cat: catLabel(p.category), quota: p.quota_label, price: Number(p.price_kwd).toFixed(2), subs: p.subs,
   })))
 }))
 
-app.get('/api/admin/analytics', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
+  const ids = idList(await customerBusinessIds(req.user))
   const [byPlan, top, daily, revenue, growth, usage, totals] = await Promise.all([
-    many(`select p.category, coalesce(sum(b.mrr),0)::numeric mrr from sts_businesses b join sts_plans p on p.code=b.plan_code group by p.category`),
+    many(`select p.category, coalesce(sum(b.mrr),0)::numeric mrr from sts_businesses b join sts_plans p on p.code=b.plan_code where b.id=any($1::uuid[]) group by p.category`, [ids]),
     many(
       `select b.name, b.mrr,
               (select count(*)::int from sts_messages m where m.business_id=b.id) msgs,
               coalesce((select sum(duration_sec)/60 from sts_call_logs c where c.business_id=b.id),0)::int voice_min
-         from sts_businesses b order by b.mrr desc limit 6`,
+         from sts_businesses b where b.id=any($1::uuid[]) order by b.mrr desc limit 6`,
+      [ids],
     ),
-    many(`select to_char(date_trunc('day', created_at),'Mon DD') d, count(*)::int n from sts_messages where created_at > now() - interval '14 days' group by date_trunc('day', created_at) order by date_trunc('day', created_at)`),
-    // monthly collected revenue (paid payments) — last 6 months
+    many(`select to_char(date_trunc('day', created_at),'Mon DD') d, count(*)::int n from sts_messages where business_id=any($1::uuid[]) and created_at > now() - interval '14 days' group by date_trunc('day', created_at) order by date_trunc('day', created_at)`, [ids]),
     many(`select to_char(date_trunc('month', created_at),'Mon') m, coalesce(sum(amount_kwd),0)::numeric total
-            from sts_payments where status='paid' and created_at > now() - interval '6 months'
-            group by date_trunc('month', created_at) order by date_trunc('month', created_at)`),
-    // new businesses per month split by current status
+            from sts_payments where business_id=any($1::uuid[]) and status='paid' and created_at > now() - interval '6 months'
+            group by date_trunc('month', created_at) order by date_trunc('month', created_at)`, [ids]),
     many(`select to_char(date_trunc('month', created_at),'Mon') m,
                  count(*) filter (where status='paid')::int paid,
                  count(*) filter (where status in ('free','suspended'))::int free
-            from sts_businesses where created_at > now() - interval '6 months'
-            group by date_trunc('month', created_at) order by date_trunc('month', created_at)`),
-    // platform message volume by channel
-    many(`select c.channel, count(m.*)::int n from sts_messages m join sts_conversations c on c.id=m.conversation_id group by c.channel`),
-    one(`select coalesce(sum(mrr),0)::numeric mrr, count(*) filter (where status='paid')::int paid from sts_businesses`),
+            from sts_businesses where id=any($1::uuid[]) and created_at > now() - interval '6 months'
+            group by date_trunc('month', created_at) order by date_trunc('month', created_at)`, [ids]),
+    many(`select c.channel, count(m.*)::int n from sts_messages m join sts_conversations c on c.id=m.conversation_id where m.business_id=any($1::uuid[]) group by c.channel`, [ids]),
+    one(`select coalesce(sum(mrr),0)::numeric mrr, count(*) filter (where status='paid')::int paid from sts_businesses where id=any($1::uuid[])`, [ids]),
   ])
   res.json({
     by_plan: byPlan.map((r) => ({ category: r.category, mrr: Number(r.mrr) })),
@@ -830,7 +875,8 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (_req, res) => {
 const SETTINGS_PLAIN = ['support_whatsapp', 'support_email', 'currency']
 const SETTINGS_SECRET = ['meta_app_id', 'openai_key', 'twilio_sid', 'elevenlabs_key']
 
-app.get('/api/admin/settings', auth, adminOnly, wrap(async (_req, res) => {
+app.get('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
+  if (!isPlatformAdmin(req.user)) return res.json({ support_whatsapp: '', support_email: '', currency: 'KWD' })
   const rows = await many(`select key, value from sts_settings`)
   const map = {}
   rows.forEach((r) => (map[r.key] = r.value))
@@ -845,6 +891,7 @@ app.get('/api/admin/settings', auth, adminOnly, wrap(async (_req, res) => {
 }))
 
 app.put('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
+  if (!isPlatformAdmin(req.user)) return res.status(403).json({ error: 'Platform settings are not available on this account' })
   const body = req.body || {}
   const existing = {}
   ;(await many(`select key, value from sts_settings`)).forEach((r) => (existing[r.key] = r.value))
@@ -956,11 +1003,11 @@ app.get('/api/admin/connection-spec', auth, adminOnly, wrap(async (_req, res) =>
   res.json(CONNECTION_SPEC)
 }))
 
-app.get('/api/admin/businesses/:id/connections', auth, adminOnly, wrap(async (req, res) => {
+app.get('/api/admin/businesses/:id/connections', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   res.json(await connectionsFor(req.params.id, true))
 }))
 
-app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(async (req, res) => {
+app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const { id, channel } = req.params
   if (!CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' })
   const bizRow = await one(`select id from sts_businesses where id=$1`, [id])
@@ -969,36 +1016,40 @@ app.put('/api/admin/businesses/:id/connections/:channel', auth, adminOnly, wrap(
   res.json({ ok: true, connected })
 }))
 
-async function adminBizOr404(id, res) {
+async function adminBizOr404(id, res, req) {
   const row = await one(`select id from sts_businesses where id=$1`, [id])
   if (!row) { res.status(404).json({ error: 'Business not found' }); return null }
+  if (req && !(await adminOwns(req.user, row.id))) {
+    res.status(404).json({ error: 'Business not found' })
+    return null
+  }
   return row.id
 }
 
 app.post('/api/admin/businesses/:id/whatsapp/qr/start', auth, adminOnly, wrap(async (req, res) => {
-  const id = await adminBizOr404(req.params.id, res)
+  const id = await adminBizOr404(req.params.id, res, req)
   if (!id) return
   await qrStartFor(id, res)
 }))
 app.get('/api/admin/businesses/:id/whatsapp/qr/status', auth, adminOnly, wrap(async (req, res) => {
-  const id = await adminBizOr404(req.params.id, res)
+  const id = await adminBizOr404(req.params.id, res, req)
   if (!id) return
   qrStatusFor(id, res)
 }))
 app.post('/api/admin/businesses/:id/whatsapp/qr/logout', auth, adminOnly, wrap(async (req, res) => {
-  const id = await adminBizOr404(req.params.id, res)
+  const id = await adminBizOr404(req.params.id, res, req)
   if (!id) return
   res.json({ success: true, ...(await logoutQrSession(id)) })
 }))
 app.post('/api/admin/businesses/:id/whatsapp/qr/reconnect', auth, adminOnly, wrap(async (req, res) => {
-  const id = await adminBizOr404(req.params.id, res)
+  const id = await adminBizOr404(req.params.id, res, req)
   if (!id) return
   await stopQrSession(id, { wipe: false }).catch(() => {})
   await qrStartFor(id, res)
 }))
 
 /* ---------- ADMIN: per-business knowledge base (chatbot training) ---------- */
-app.get('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req, res) => {
+app.get('/api/admin/businesses/:id/knowledge', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const params = [req.params.id]
   let sql = `select ${KB_COLS} from sts_knowledge_sources where business_id=$1`
   if (req.query.channel && KB_CHANNELS.includes(req.query.channel)) { params.push(req.query.channel); sql += ` and channel=$2` }
@@ -1006,7 +1057,7 @@ app.get('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req,
   res.json(await many(sql, params))
 }))
 
-app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req, res) => {
+app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
@@ -1017,19 +1068,19 @@ app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req
   res.status(201).json(row)
 }))
 
-app.post('/api/admin/businesses/:id/knowledge/upload', auth, adminOnly, handleKbUpload, wrap(async (req, res) => {
+app.post('/api/admin/businesses/:id/knowledge/upload', auth, adminOnly, adminOwnsBiz, handleKbUpload, wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file required' })
   try { res.status(201).json(await saveUploadedKnowledge(req.params.id, req.file, req.body || {})) }
   catch (e) { res.status(400).json({ error: e.message || 'Could not read file' }) }
 }))
 
-app.get('/api/admin/businesses/:id/profile', auth, adminOnly, wrap(async (req, res) => {
+app.get('/api/admin/businesses/:id/profile', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const row = await one(`select name, whatsapp, hours, language from sts_businesses where id=$1`, [req.params.id])
   if (!row) return res.status(404).json({ error: 'Not found' })
   res.json({ business_name: row.name, whatsapp: row.whatsapp || '', hours: row.hours || '', language: row.language || 'auto' })
 }))
 
-app.put('/api/admin/businesses/:id/profile', auth, adminOnly, wrap(async (req, res) => {
+app.put('/api/admin/businesses/:id/profile', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const { business_name, whatsapp, hours, language } = req.body || {}
   const sets = [], params = [req.params.id]
   const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }
@@ -1038,24 +1089,28 @@ app.put('/api/admin/businesses/:id/profile', auth, adminOnly, wrap(async (req, r
   res.json({ ok: true })
 }))
 
-app.get('/api/admin/businesses/:id/bots/:channel', auth, adminOnly, wrap(async (req, res) => {
+app.get('/api/admin/businesses/:id/bots/:channel', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const ch = toBotChannel(req.params.channel)
   const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [req.params.id, ch])
   res.json(row || { channel: ch, ...BOT_DEFAULTS })
 }))
 
-app.put('/api/admin/businesses/:id/bots/:channel', auth, adminOnly, wrap(async (req, res) => {
+app.put('/api/admin/businesses/:id/bots/:channel', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   res.json(await upsertBotSettings(req.params.id, req.params.channel, req.body || {}))
 }))
 
 app.put('/api/admin/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
-  const row = await updateKb(req.params.id, req.body)
+  const kb = await one(`select business_id from sts_knowledge_sources where id=$1`, [req.params.id])
+  if (!kb || !(await adminOwns(req.user, kb.business_id))) return res.status(404).json({ error: 'Not found' })
+  const row = await updateKb(req.params.id, req.body, kb.business_id)
   if (!row) return res.status(404).json({ error: 'Not found' })
   res.json(row)
 }))
 
 app.delete('/api/admin/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
-  await pool.query(`delete from sts_knowledge_sources where id=$1`, [req.params.id])
+  const kb = await one(`select business_id from sts_knowledge_sources where id=$1`, [req.params.id])
+  if (!kb || !(await adminOwns(req.user, kb.business_id))) return res.status(404).json({ error: 'Not found' })
+  await pool.query(`delete from sts_knowledge_sources where id=$1 and business_id=$2`, [req.params.id, kb.business_id])
   res.json({ ok: true })
 }))
 
@@ -1161,15 +1216,7 @@ async function startOutboundCall(businessId, toRaw, base) {
   ).catch(() => {})
   return call
 }
-/** The dedicated "STS Official" business the admin's own agent uses. */
-async function platformBusinessId() {
-  const s = await one(`select value from sts_settings where key='platform_business_id'`)
-  if (s?.value) return s.value
-  let b = await one(`select id from sts_businesses where name='STS Official' limit 1`)
-  if (!b) b = await one(`insert into sts_businesses (name, plan_code, status) values ('STS Official','free','paid') returning id`)
-  await pool.query(`insert into sts_settings (key,value) values ('platform_business_id',$1) on conflict (key) do update set value=excluded.value`, [b.id])
-  return b.id
-}
+/** Each admin trains agents on their own workspace — never a shared platform row. */
 
 /* ---------- public Twilio webhooks (no auth) ---------- */
 app.post('/api/voice/incoming', wrap(async (req, res) => {
@@ -1228,57 +1275,57 @@ app.get('/api/me/voice/webhook-info', auth, wrap(async (req, res) => res.json(vo
 
 /* ---------- ADMIN voice endpoints (STS Official business) ---------- */
 app.get('/api/admin/voice/context', auth, adminOnly, wrap(async (req, res) => {
-  res.json({ business_id: await platformBusinessId(), ...voiceWebhookInfo(voiceBase(req)) })
+  res.json({ business_id: adminWorkspace(req), ...voiceWebhookInfo(voiceBase(req)) })
 }))
-app.get('/api/admin/voice/connection', auth, adminOnly, wrap(async (_req, res) => {
-  const conns = await connectionsFor(await platformBusinessId(), true)
+app.get('/api/admin/voice/connection', auth, adminOnly, wrap(async (req, res) => {
+  const conns = await connectionsFor(adminWorkspace(req), true)
   res.json(conns.find((c) => c.channel === 'voice'))
 }))
 app.put('/api/admin/voice/connection', auth, adminOnly, wrap(async (req, res) => {
-  const connected = await saveChannelConnection(await platformBusinessId(), 'voice', req.body?.fields || {})
+  const connected = await saveChannelConnection(adminWorkspace(req), 'voice', req.body?.fields || {})
   res.json({ ok: true, connected })
 }))
-app.delete('/api/admin/voice/connection', auth, adminOnly, wrap(async (_req, res) => {
-  await pool.query(`delete from sts_channel_configs where business_id=$1 and channel='voice'`, [await platformBusinessId()])
+app.delete('/api/admin/voice/connection', auth, adminOnly, wrap(async (req, res) => {
+  await pool.query(`delete from sts_channel_configs where business_id=$1 and channel='voice'`, [adminWorkspace(req)])
   res.json({ ok: true })
 }))
 app.post('/api/admin/voice/dial', auth, adminOnly, wrap(async (req, res) => {
   try {
-    const call = await startOutboundCall(await platformBusinessId(), req.body?.to, voiceBase(req))
+    const call = await startOutboundCall(adminWorkspace(req), req.body?.to, voiceBase(req))
     res.json({ ok: true, call_sid: call.sid, status: call.status })
   } catch (e) { res.status(e.code || 500).json({ error: e.message }) }
 }))
-app.get('/api/admin/voice/calls', auth, adminOnly, wrap(async (_req, res) => res.json(await callList(await platformBusinessId()))))
+app.get('/api/admin/voice/calls', auth, adminOnly, wrap(async (req, res) => res.json(await callList(adminWorkspace(req)))))
 app.get('/api/admin/voice/calls/:id', auth, adminOnly, wrap(async (req, res) => {
-  const row = await one(`select * from sts_call_logs where id=$1 and business_id=$2`, [req.params.id, await platformBusinessId()])
+  const row = await one(`select * from sts_call_logs where id=$1 and business_id=$2`, [req.params.id, adminWorkspace(req)])
   if (!row) return res.status(404).json({ error: 'Not found' })
   res.json(callShape(row, true))
 }))
 // admin voice agent training (bot settings + knowledge) on the STS Official business
-app.get('/api/admin/voice/bot', auth, adminOnly, wrap(async (_req, res) => {
-  const pid = await platformBusinessId()
+app.get('/api/admin/voice/bot', auth, adminOnly, wrap(async (req, res) => {
+  const pid = adminWorkspace(req)
   const row = await one(`select * from sts_bot_settings where business_id=$1 and channel='voice'`, [pid])
   res.json(row || { channel: 'voice', greeting: '', tone: 'friendly', language: 'auto' })
 }))
 app.put('/api/admin/voice/bot', auth, adminOnly, wrap(async (req, res) => {
-  res.json(await upsertBotSettings(await platformBusinessId(), 'voice', req.body || {}))
+  res.json(await upsertBotSettings(adminWorkspace(req), 'voice', req.body || {}))
 }))
-app.get('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (_req, res) => {
-  const pid = await platformBusinessId()
+app.get('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) => {
+  const pid = adminWorkspace(req)
   // the voice agent uses its own 'voice' entries + anything shared as 'all'
   res.json(await many(`select ${KB_COLS} from sts_knowledge_sources where business_id=$1 and channel in ('all','voice') order by created_at desc`, [pid]))
 }))
 app.post('/api/admin/voice/knowledge/upload', auth, adminOnly, handleKbUpload, wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file required' })
   try {
-    res.status(201).json(await saveUploadedKnowledge(await platformBusinessId(), req.file, {
+    res.status(201).json(await saveUploadedKnowledge(adminWorkspace(req), req.file, {
       title: req.body?.title, channel: req.body?.channel === 'all' ? 'all' : 'voice',
     }))
   } catch (e) { res.status(400).json({ error: e.message || 'Could not read file' }) }
 }))
 
 app.post('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) => {
-  const pid = await platformBusinessId()
+  const pid = adminWorkspace(req)
   const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
   const row = await one(
@@ -1291,12 +1338,12 @@ app.post('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) =>
 app.put('/api/admin/voice/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
   const body = { ...req.body }
   if (body.channel !== undefined) body.channel = body.channel === 'all' ? 'all' : 'voice'
-  const row = await updateKb(req.params.id, body, await platformBusinessId())
+  const row = await updateKb(req.params.id, body, adminWorkspace(req))
   if (!row) return res.status(404).json({ error: 'Not found' })
   res.json(row)
 }))
 app.delete('/api/admin/voice/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
-  await pool.query(`delete from sts_knowledge_sources where id=$1 and business_id=$2`, [req.params.id, await platformBusinessId()])
+  await pool.query(`delete from sts_knowledge_sources where id=$1 and business_id=$2`, [req.params.id, adminWorkspace(req)])
   res.json({ ok: true })
 }))
 
@@ -1305,7 +1352,7 @@ app.delete('/api/admin/voice/knowledge/:id', auth, adminOnly, wrap(async (req, r
 // exactly like a customer does for their business.
 app.get('/api/admin/agent/context', auth, adminOnly, wrap(async (req, res) => {
   res.json({
-    business_id: await platformBusinessId(),
+    business_id: adminWorkspace(req),
     spec: CONNECTION_SPEC,
     whatsapp: { callback_url: `${voiceBase(req)}/api/webhooks/whatsapp`, verify_token: process.env.WHATSAPP_VERIFY_TOKEN || '' },
     voice: voiceWebhookInfo(voiceBase(req)),
@@ -1314,43 +1361,43 @@ app.get('/api/admin/agent/context', auth, adminOnly, wrap(async (req, res) => {
 
 app.get('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req, res) => {
   if (!CHANNELS.includes(req.params.channel)) return res.status(400).json({ error: 'Unknown channel' })
-  const conns = await connectionsFor(await platformBusinessId(), true)
+  const conns = await connectionsFor(adminWorkspace(req), true)
   res.json(conns.find((c) => c.channel === req.params.channel))
 }))
 app.put('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req, res) => {
   if (!CHANNELS.includes(req.params.channel)) return res.status(400).json({ error: 'Unknown channel' })
-  const connected = await saveChannelConnection(await platformBusinessId(), req.params.channel, req.body?.fields || {})
+  const connected = await saveChannelConnection(adminWorkspace(req), req.params.channel, req.body?.fields || {})
   res.json({ ok: true, connected })
 }))
 app.delete('/api/admin/agent/:channel/connection', auth, adminOnly, wrap(async (req, res) => {
   if (!CHANNELS.includes(req.params.channel)) return res.status(400).json({ error: 'Unknown channel' })
-  const pid = await platformBusinessId()
+  const pid = adminWorkspace(req)
   if (req.params.channel === 'whatsapp') await stopQrSession(pid, { wipe: true }).catch(() => {})
   await pool.query(`delete from sts_channel_configs where business_id=$1 and channel=$2`, [pid, req.params.channel])
   res.json({ ok: true })
 }))
 
-app.post('/api/admin/agent/whatsapp/qr/start', auth, adminOnly, wrap(async (_req, res) => {
-  await qrStartFor(await platformBusinessId(), res)
+app.post('/api/admin/agent/whatsapp/qr/start', auth, adminOnly, wrap(async (req, res) => {
+  await qrStartFor(adminWorkspace(req), res)
 }))
-app.get('/api/admin/agent/whatsapp/qr/status', auth, adminOnly, wrap(async (_req, res) => {
-  qrStatusFor(await platformBusinessId(), res)
+app.get('/api/admin/agent/whatsapp/qr/status', auth, adminOnly, wrap(async (req, res) => {
+  qrStatusFor(adminWorkspace(req), res)
 }))
-app.post('/api/admin/agent/whatsapp/qr/logout', auth, adminOnly, wrap(async (_req, res) => {
-  res.json({ success: true, ...(await logoutQrSession(await platformBusinessId())) })
+app.post('/api/admin/agent/whatsapp/qr/logout', auth, adminOnly, wrap(async (req, res) => {
+  res.json({ success: true, ...(await logoutQrSession(adminWorkspace(req))) })
 }))
 app.post('/api/admin/agent/whatsapp/qr/reconnect', auth, adminOnly, wrap(async (_req, res) => {
-  const pid = await platformBusinessId()
+  const pid = adminWorkspace(req)
   await stopQrSession(pid, { wipe: false }).catch(() => {})
   await qrStartFor(pid, res)
 }))
 
 app.get('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) => {
-  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [await platformBusinessId(), req.params.channel])
+  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [adminWorkspace(req), req.params.channel])
   res.json(row || { channel: req.params.channel, auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto' })
 }))
 app.put('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) => {
-  res.json(await upsertBotSettings(await platformBusinessId(), req.params.channel, req.body || {}))
+  res.json(await upsertBotSettings(adminWorkspace(req), req.params.channel, req.body || {}))
 }))
 
 /* ================================================================
@@ -1370,8 +1417,9 @@ waWss.on('connection', async (ws, req) => {
   try { token = new URL(req.url, 'http://localhost').searchParams.get('token') || '' } catch { /* ignore */ }
   const user = await userFromToken(token)
   if (!user) { ws.close(4401, 'unauthorized'); return }
-  attachQrSocket(ws, user)
-  const bid = user.role === 'admin' ? null : user.business_id
+  const allowed = await allowedBusinessIds(user)
+  attachQrSocket(ws, user, allowed)
+  const bid = user.business_id
   if (bid) {
     const st = getQrStatus(bid)
     try { ws.send(JSON.stringify({ business_id: bid, provider: 'qr', type: 'whatsapp:status', ...st })) } catch { /* ignore */ }

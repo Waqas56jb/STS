@@ -2,6 +2,7 @@ import 'dotenv/config'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { one } from '../db.js'
+import { ensureUserWorkspace } from './tenant.js'
 
 const JWT_SECRET = process.env.JWT_SECRET
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d'
@@ -41,6 +42,7 @@ export async function auth(req, res, next) {
     if (user.business_status === 'suspended')
       return res.status(403).json({ error: 'Account suspended — contact STS support' })
 
+    await ensureUserWorkspace(user)
     req.user = user
     next()
   } catch {
@@ -68,6 +70,7 @@ export async function userFromToken(token) {
       [payload.id],
     )
     if (!user || user.business_status === 'suspended') return null
+    await ensureUserWorkspace(user)
     return user
   } catch {
     return null

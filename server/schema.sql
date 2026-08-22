@@ -50,11 +50,14 @@ create table if not exists sts_businesses (
   widget_key  text unique default ('biz_' || substr(md5(random()::text),1,10)),
   hours       text,
   language    text default 'auto',
+  owner_user_id uuid,
   created_at  timestamptz default now()
 );
 -- add profile columns to already-created databases (idempotent)
 alter table sts_businesses add column if not exists hours text;
 alter table sts_businesses add column if not exists language text default 'auto';
+alter table sts_businesses add column if not exists owner_user_id uuid references sts_users(id) on delete set null;
+create index if not exists idx_sts_biz_owner on sts_businesses(owner_user_id);
 
 -- ---------- users (admin + client logins) ----------
 create table if not exists sts_users (

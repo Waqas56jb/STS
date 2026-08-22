@@ -160,14 +160,26 @@ const period = () => {
 }
 
 async function run() {
-  // 1. admin
+  // 1. admin — private workspace (never share STS Official across admin logins)
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@gmail.com'
+  let adminBiz = await one(`select id from sts_businesses where name='STS Official' limit 1`)
+  if (!adminBiz) {
+    adminBiz = await one(
+      `insert into sts_businesses (name, plan_code, status) values ('STS Official','free','paid') returning id`,
+    )
+  }
   await upsertUser({
-    email: process.env.ADMIN_EMAIL || 'admin@gmail.com',
+    email: adminEmail,
     name: process.env.ADMIN_NAME || 'STS Admin',
     role: 'admin',
+    business_id: adminBiz.id,
     password: process.env.ADMIN_PASSWORD || 'admin@123!',
   })
-  console.log('✓ admin account:', process.env.ADMIN_EMAIL)
+  const adminRow = await one(`select id from sts_users where email=$1`, [adminEmail.toLowerCase()])
+  if (adminRow) {
+    await pool.query(`update sts_businesses set owner_user_id=$1 where id=$2`, [adminRow.id, adminBiz.id])
+  }
+  console.log('✓ admin account:', adminEmail)
 
   // 2. businesses + client users
   const bizId = {}
