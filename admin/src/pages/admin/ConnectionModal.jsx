@@ -26,7 +26,6 @@ export function ConnectionModal({ business, onClose }) {
   const [channel, setChannel] = useState('whatsapp')
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
-  const [waProvider, setWaProvider] = useState('qr')
 
   const open = Boolean(business)
 
@@ -42,8 +41,6 @@ export function ConnectionModal({ business, onClose }) {
       .then(([sp, cs]) => {
         setSpec(sp)
         setConns(cs)
-        const wa = (cs || []).find((c) => c.channel === 'whatsapp')
-        setWaProvider(wa?.provider === 'cloud_api' ? 'cloud_api' : 'qr')
       })
       .catch(() => {})
   }, [business])
@@ -130,21 +127,10 @@ export function ConnectionModal({ business, onClose }) {
                 </div>
 
                 {channel === 'whatsapp' && (
-                  <div className="conn-tabs" style={{ margin: '8px 0 12px' }}>
-                    <button className={`conn-tab ${waProvider === 'qr' ? 'on' : ''}`} onClick={() => setWaProvider('qr')}>
-                      {t('conn_qr_tab')}
-                    </button>
-                    <button className={`conn-tab ${waProvider === 'cloud_api' ? 'on' : ''}`} onClick={() => setWaProvider('cloud_api')}>
-                      Meta Cloud API
-                    </button>
-                  </div>
-                )}
-
-                {channel === 'whatsapp' && waProvider === 'qr' && (
                   <WhatsAppQrPanel base={`/admin/businesses/${business.id}/whatsapp/qr`} />
                 )}
 
-                {(channel !== 'whatsapp' || waProvider === 'cloud_api') && spec[channel].fields.map((field) => (
+                {channel !== 'whatsapp' && spec[channel].fields.map((field) => (
                   <div className="field" key={field.key}>
                     <label>{field.label}{spec[channel].required.includes(field.key) && ' *'}</label>
                     {field.type === 'select' ? (
@@ -164,7 +150,7 @@ export function ConnectionModal({ business, onClose }) {
                   </div>
                 ))}
 
-                {(channel !== 'whatsapp' || waProvider === 'cloud_api') && (
+                {channel !== 'whatsapp' && (
                   <>
                     <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }} onClick={save} disabled={saving}>
                       <Icon name="save" size={16} />

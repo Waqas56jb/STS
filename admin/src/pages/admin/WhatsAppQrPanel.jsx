@@ -74,16 +74,6 @@ export function WhatsAppQrPanel({ base, onChange }) {
             <Icon name="refresh-cw" size={14} />{t('qr_refresh')}
           </button>
         )}
-        {(connected || st.status === 'reconnecting') && (
-          <button className="btn btn-o" disabled={busy} onClick={() => run('/reconnect')}>
-            <Icon name="refresh-cw" size={14} />{t('qr_reconnect')}
-          </button>
-        )}
-        {st.status !== 'disconnected' && (
-          <button className="btn btn-o" disabled={busy} onClick={() => run('/logout')}>
-            <Icon name="log-out" size={14} />{t('qr_disconnect')}
-          </button>
-        )}
       </div>
     </div>
   )

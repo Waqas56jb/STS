@@ -18,36 +18,38 @@ const TABS = [
 export function StsAgents() {
   const { t } = useAdminT()
   const [tab, setTab] = useState('whatsapp')
-  const [section, setSection] = useState('setup') // setup | history
   const [ctx, setCtx] = useState(null)
   useEffect(() => { apiGet('/admin/agent/context').then(setCtx).catch(() => {}) }, [])
 
   return (
     <>
-      <div className="conn-tabs" style={{ marginBottom: 14 }}>
-        {TABS.map((tabItem) => (
-          <button key={tabItem.v} className={`conn-tab ${tab === tabItem.v ? 'on' : ''}`} onClick={() => { setTab(tabItem.v); setSection('setup') }}>
-            <Icon name={tabItem.icon} size={15} />{tabItem.label}
-          </button>
-        ))}
+      <div className="field" style={{ maxWidth: 280, marginBottom: 18 }}>
+        <label>{t('act_channel')}</label>
+        <select value={tab} onChange={(e) => setTab(e.target.value)}>
+          {TABS.map((tabItem) => (
+            <option key={tabItem.v} value={tabItem.v}>{tabItem.label}</option>
+          ))}
+        </select>
       </div>
 
-      <div className="conn-tabs" style={{ marginBottom: 18 }}>
-        <button className={`conn-tab ${section === 'setup' ? 'on' : ''}`} onClick={() => setSection('setup')}>
-          <Icon name="settings" size={15} />{t('act_setup')}
-        </button>
-        <button className={`conn-tab ${section === 'history' ? 'on' : ''}`} onClick={() => setSection('history')}>
-          <Icon name="history" size={15} />{t('act_history')}
-        </button>
-      </div>
-
-      {section === 'history' ? (
-        tab === 'voice' ? <AgentHistoryPanel channel="voice" />
-          : tab === 'website' ? <AgentHistoryPanel channel="website" />
-          : <AgentHistoryPanel channel={tab} />
-      ) : tab === 'voice' ? <VoiceAgent businessId={ctx?.business_id} />
-        : tab === 'website' ? (ctx?.business_id ? <TrainingStudio api={adminTrainingApi(ctx.business_id)} defaultChannel="website" /> : null)
-        : <ChannelAgent key={tab} channel={tab} ctx={ctx} />}
+      {tab === 'voice' ? (
+        <>
+          <VoiceAgent businessId={ctx?.business_id} />
+          <div style={{ marginTop: 18 }}><AgentHistoryPanel channel="voice" /></div>
+        </>
+      ) : tab === 'website' ? (
+        ctx?.business_id && (
+          <>
+            <TrainingStudio api={adminTrainingApi(ctx.business_id)} defaultChannel="website" />
+            <div style={{ marginTop: 18 }}><AgentHistoryPanel channel="website" /></div>
+          </>
+        )
+      ) : (
+        <>
+          <ChannelAgent key={tab} channel={tab} ctx={ctx} />
+          <div style={{ marginTop: 18 }}><AgentHistoryPanel channel={tab} /></div>
+        </>
+      )}
     </>
   )
 }
@@ -71,12 +73,8 @@ function AgentConnection({ channel, spec }) {
   const [form, setForm] = useState({})
   const [shown, setShown] = useState({})
   const [saving, setSaving] = useState(false)
-  const [waProvider, setWaProvider] = useState('qr')
 
-  const load = () => apiGet(`/admin/agent/${channel}/connection`).then((c) => {
-    setCurrent(c)
-    if (channel === 'whatsapp') setWaProvider(c?.provider === 'cloud_api' ? 'cloud_api' : 'qr')
-  }).catch(() => {})
+  const load = () => apiGet(`/admin/agent/${channel}/connection`).then(setCurrent).catch(() => {})
   useEffect(() => { load() }, [channel])
   useEffect(() => {
     if (!spec) return
@@ -111,15 +109,9 @@ function AgentConnection({ channel, spec }) {
         </span>
       </div>
       {channel === 'whatsapp' && (
-        <div className="conn-tabs" style={{ marginBottom: 12 }}>
-          <button className={`conn-tab ${waProvider === 'qr' ? 'on' : ''}`} onClick={() => setWaProvider('qr')}>{t('conn_qr_tab')}</button>
-          <button className={`conn-tab ${waProvider === 'cloud_api' ? 'on' : ''}`} onClick={() => setWaProvider('cloud_api')}>Meta Cloud API</button>
-        </div>
-      )}
-      {channel === 'whatsapp' && waProvider === 'qr' && (
         <WhatsAppQrPanel base="/admin/agent/whatsapp/qr" />
       )}
-      {(channel !== 'whatsapp' || waProvider === 'cloud_api') && spec.fields.map((f) => (
+      {channel !== 'whatsapp' && spec.fields.map((f) => (
         <div className="field" key={f.key}>
           <label>{f.label}{spec.required.includes(f.key) && ' *'}</label>
           {f.type === 'select' ? (
@@ -141,7 +133,7 @@ function AgentConnection({ channel, spec }) {
           )}
         </div>
       ))}
-      {(channel !== 'whatsapp' || waProvider === 'cloud_api') && (
+      {channel !== 'whatsapp' && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-g" style={{ flex: 1, justifyContent: 'center' }} onClick={save} disabled={saving}>
             <Icon name="save" size={16} />{saving ? '…' : t('conn_save')}
