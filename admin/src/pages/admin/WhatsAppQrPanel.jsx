@@ -38,6 +38,7 @@ export function WhatsAppQrPanel({ base, onChange }) {
   }
 
   const connected = st.status === 'connected'
+  const pairing = LIVE.has(st.status)
   const label = {
     disconnected: isAr ? 'غير متصل' : 'Disconnected',
     starting: isAr ? 'جارٍ البدء…' : 'Starting…',
@@ -52,8 +53,8 @@ export function WhatsAppQrPanel({ base, onChange }) {
   return (
     <div>
       <div className="conn-status" style={{ marginBottom: 12 }}>
-        <span className={`badge ${connected ? 'b-ok' : 'b-warn'}`}>{label}</span>
-        {connected && <span style={{ fontSize: 13 }}>{st.display_number}</span>}
+        <span className={`badge ${connected || st.status === 'reconnecting' ? 'b-ok' : 'b-warn'}`}>{label}</span>
+        {(connected || st.status === 'reconnecting') && <span style={{ fontSize: 13 }}>{st.display_number}</span>}
       </div>
       {st.qr && (
         <div style={{ textAlign: 'center', marginBottom: 12 }}>
@@ -67,7 +68,7 @@ export function WhatsAppQrPanel({ base, onChange }) {
       )}
       {st.error && <p style={{ color: '#b45309', fontSize: 13, marginBottom: 8 }}>{st.error}</p>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {!connected && (
+        {!connected && !pairing && (
           <button className="btn btn-g" disabled={busy} onClick={() => run('/start')}>
             <Icon name="qr-code" size={15} />{isAr ? 'بدء رمز QR' : 'Start QR'}
           </button>

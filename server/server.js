@@ -1034,7 +1034,7 @@ app.post('/api/admin/businesses/:id/whatsapp/qr/start', auth, adminOnly, wrap(as
 app.get('/api/admin/businesses/:id/whatsapp/qr/status', auth, adminOnly, wrap(async (req, res) => {
   const id = await adminBizOr404(req.params.id, res, req)
   if (!id) return
-  qrStatusFor(id, res)
+  await qrStatusFor(id, res)
 }))
 app.post('/api/admin/businesses/:id/whatsapp/qr/logout', auth, adminOnly, wrap(async (req, res) => {
   const id = await adminBizOr404(req.params.id, res, req)
@@ -1382,7 +1382,7 @@ app.post('/api/admin/agent/whatsapp/qr/start', auth, adminOnly, wrap(async (req,
   await qrStartFor(adminWorkspace(req), res)
 }))
 app.get('/api/admin/agent/whatsapp/qr/status', auth, adminOnly, wrap(async (req, res) => {
-  qrStatusFor(adminWorkspace(req), res)
+  await qrStatusFor(adminWorkspace(req), res)
 }))
 app.post('/api/admin/agent/whatsapp/qr/logout', auth, adminOnly, wrap(async (req, res) => {
   res.json({ success: true, ...(await logoutQrSession(adminWorkspace(req))) })
@@ -1422,7 +1422,7 @@ waWss.on('connection', async (ws, req) => {
   attachQrSocket(ws, user, allowed)
   const bid = user.business_id
   if (bid) {
-    const st = getQrStatus(bid)
+    const st = await resolveQrStatus(bid)
     try { ws.send(JSON.stringify({ business_id: bid, provider: 'qr', type: 'whatsapp:status', ...st })) } catch { /* ignore */ }
   }
 })

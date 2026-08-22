@@ -235,7 +235,7 @@ export const en = {
   qr_refresh: 'Refresh QR',
   qr_reconnect: 'Reconnect',
   qr_disconnect: 'Disconnect',
-  qr_note: 'Keep this server running (Railway). Scanning links your real number; the AI replies in this inbox.',
+  qr_note: 'Stays connected after you scan — even if the server restarts. It only disconnects when you unlink the device in WhatsApp on your phone, or tap Disconnect here.',
   saving: 'Saving…',
   save_failed: 'Save failed',
   wa_num: 'Business number',
