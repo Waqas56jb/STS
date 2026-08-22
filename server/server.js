@@ -20,6 +20,9 @@ import {
 } from './lib/memory.js'
 import { ensureTrainingSchema } from './lib/ensureSchema.js'
 import {
+  parseSiteConfig, DEFAULT_WHATSAPP, DEFAULT_EMAIL, waLink, pricingPlanUpdates,
+} from './lib/siteConfig.js'
+import {
   ensureUserWorkspace, adminOwns, customerBusinessIds, adminReportBusinessIds, allowedBusinessIds,
   emailTaken, idList, isPlatformAdmin,
 } from './lib/tenant.js'
@@ -410,6 +413,27 @@ app.post('/api/requests', wrap(async (req, res) => {
 app.get('/api/plans', wrap(async (_req, res) => {
   const rows = await many('select * from sts_plans where active order by sort')
   res.json(rows)
+}))
+
+/** Public site branding — landing page theme, copy overrides, pricing. */
+app.get('/api/site-config', wrap(async (_req, res) => {
+  const rows = await many(`select key, value from sts_settings where key in ('site_config','support_whatsapp','support_email','currency')`)
+  const map = {}
+  rows.forEach((r) => (map[r.key] = r.value))
+  const site = parseSiteConfig(map.site_config)
+  const whatsapp = map.support_whatsapp || DEFAULT_WHATSAPP
+  const email = map.support_email || DEFAULT_EMAIL
+  res.json({
+    theme: site.theme,
+    copy: site.copy,
+    pricing: site.pricing,
+    contact: {
+      whatsapp,
+      email,
+      currency: map.currency || 'KWD',
+      whatsapp_url: waLink(whatsapp),
+    },
+  })
 }))
 
 /* ================================================================
@@ -1077,7 +1101,7 @@ app.get('/api/admin/plans', auth, adminOnly, wrap(async (req, res) => {
 
 app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
   const ids = idList(await adminReportBusinessIds(req.user))
-  const [byPlan, top, daily, revenue, growth, usage, totals] = await Promise.all([
+  const [byPlan, top, daily, revenue, growth, usage, totals, arpuRows] = await Promise.all([
     many(`select p.category, coalesce(sum(b.mrr),0)::numeric mrr from sts_businesses b join sts_plans p on p.code=b.plan_code where b.id=any($1::uuid[]) group by p.category`, [ids]),
     many(
       `select b.name, b.mrr,
@@ -1098,7 +1122,42 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
             group by date_trunc('month', created_at) order by date_trunc('month', created_at)`, [ids]),
     many(`select c.channel, count(m.*)::int n from sts_messages m join sts_conversations c on c.id=m.conversation_id where m.business_id=any($1::uuid[]) group by c.channel`, [ids]),
     one(`select coalesce(sum(mrr),0)::numeric mrr, count(*) filter (where status='paid')::int paid from sts_businesses where id=any($1::uuid[])`, [ids]),
+    many(
+      `with months as (
+         select generate_series(
+           date_trunc('month', now()) - interval '5 months',
+           date_trunc('month', now()),
+           interval '1 month'
+         ) as month_start
+       ),
+       rev as (
+         select date_trunc('month', p.created_at) as month_start,
+                coalesce(sum(p.amount_kwd), 0)::numeric as total
+           from sts_payments p
+          where p.business_id = any($1::uuid[])
+            and p.status = 'paid'
+            and p.created_at >= date_trunc('month', now()) - interval '5 months'
+          group by 1
+       ),
+       active as (
+         select m.month_start, count(*)::int as paid_n
+           from months m
+           join sts_businesses b on b.id = any($1::uuid[])
+            and b.status = 'paid'
+            and b.created_at < m.month_start + interval '1 month'
+          group by m.month_start
+       )
+       select to_char(m.month_start, 'Mon') as m,
+              coalesce(r.total, 0)::numeric as revenue,
+              coalesce(a.paid_n, 0)::int as paid_n
+         from months m
+         left join rev r on r.month_start = m.month_start
+         left join active a on a.month_start = m.month_start
+        order by m.month_start`,
+      [ids],
+    ),
   ])
+  const mrrArpu = totals.paid ? Number(totals.mrr) / totals.paid : 0
   res.json({
     by_plan: byPlan.map((r) => ({ category: r.category, mrr: Number(r.mrr) })),
     top_businesses: top.map((r) => ({ biz: r.name, mrr: kwd(r.mrr), msgs: r.msgs, voice_min: r.voice_min })),
@@ -1107,10 +1166,13 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
     growth_monthly: growth.map((r) => ({ m: r.m, paid: r.paid, free: r.free })),
     usage_by_channel: usage.map((r) => ({ channel: r.channel, n: r.n })),
     arpu: totals.paid ? Number((Number(totals.mrr) / totals.paid).toFixed(1)) : 0,
-    arpu_monthly: revenue.map((r) => {
-      const g = growth.find((x) => x.m === r.m)
-      const paidCount = Math.max(g?.paid || 0, 1)
-      return { m: r.m, arpu: Number((Number(r.total) / paidCount).toFixed(2)) }
+    arpu_monthly: arpuRows.map((r) => {
+      const revenueAmt = Number(r.revenue)
+      const paidN = Number(r.paid_n)
+      let arpu = 0
+      if (revenueAmt > 0 && paidN > 0) arpu = revenueAmt / paidN
+      else if (paidN > 0) arpu = mrrArpu
+      return { m: r.m, arpu: Number(arpu.toFixed(2)) }
     }),
     totals: {
       messages: usage.reduce((s, r) => s + r.n, 0),
@@ -1120,29 +1182,24 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
 }))
 
 /* ---------- ADMIN: platform settings ---------- */
-const SETTINGS_PLAIN = ['support_whatsapp', 'support_email', 'currency']
-const SETTINGS_SECRET = ['meta_app_id', 'openai_key', 'twilio_sid', 'elevenlabs_key']
+const SETTINGS_PLAIN = ['support_whatsapp', 'support_email', 'currency', 'site_config']
 
 app.get('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
-  if (!isPlatformAdmin(req.user)) return res.json({ support_whatsapp: '', support_email: '', currency: 'KWD' })
+  if (!isPlatformAdmin(req.user)) return res.json({ support_whatsapp: '', support_email: '', currency: 'KWD', site_config: parseSiteConfig(null) })
   const rows = await many(`select key, value from sts_settings`)
   const map = {}
   rows.forEach((r) => (map[r.key] = r.value))
-  const out = {}
-  for (const k of SETTINGS_PLAIN) out[k] = map[k] || ''
-  for (const k of SETTINGS_SECRET) {
-    let plain = ''
-    try { plain = map[k] ? decryptJSON(map[k])?.v || '' : '' } catch { plain = '' }
-    out[k] = plain ? maskValue(plain) : '' // never send the real secret to the browser
-  }
-  res.json(out)
+  res.json({
+    support_whatsapp: map.support_whatsapp || DEFAULT_WHATSAPP,
+    support_email: map.support_email || DEFAULT_EMAIL,
+    currency: map.currency || 'KWD',
+    site_config: parseSiteConfig(map.site_config),
+  })
 }))
 
 app.put('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
   if (!isPlatformAdmin(req.user)) return res.status(403).json({ error: 'Platform settings are not available on this account' })
   const body = req.body || {}
-  const existing = {}
-  ;(await many(`select key, value from sts_settings`)).forEach((r) => (existing[r.key] = r.value))
   const upsert = async (key, value) =>
     pool.query(
       `insert into sts_settings (key, value, updated_at) values ($1,$2, now())
@@ -1150,14 +1207,19 @@ app.put('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
       [key, value],
     )
   for (const k of SETTINGS_PLAIN) {
-    if (body[k] !== undefined) await upsert(k, String(body[k]))
-  }
-  for (const k of SETTINGS_SECRET) {
-    const v = body[k]
-    if (v === undefined) continue
-    if (String(v).includes('••')) continue // masked placeholder → keep stored
-    if (String(v).trim() === '') continue // blank → keep stored
-    await upsert(k, encryptJSON({ v: String(v).trim() }))
+    if (body[k] === undefined) continue
+    if (k === 'site_config') {
+      const site = parseSiteConfig(body[k])
+      await upsert('site_config', JSON.stringify(site))
+      for (const plan of pricingPlanUpdates(site.pricing)) {
+        await pool.query(
+          `update sts_plans set name=$2, price_kwd=$3 where code=$1`,
+          [plan.code, plan.name, plan.price_kwd],
+        )
+      }
+      continue
+    }
+    await upsert(k, String(body[k]))
   }
   res.json({ ok: true })
 }))

@@ -316,7 +316,7 @@ async function run() {
 
   // 12. default platform settings (admin can edit later; keep existing values)
   const defaultSettings = {
-    support_whatsapp: '+965 0000 0000',
+    support_whatsapp: '+965 510 22389',
     support_email: 'sts@shgardiauto.com',
     currency: 'KWD',
   }

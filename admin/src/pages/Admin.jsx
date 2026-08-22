@@ -7,8 +7,9 @@ import { apiGet, apiPostAuth, apiPatch, clearSession } from '../lib/api'
 import { ToastProvider, useToast } from './ui'
 import { planOptions } from '../data/adminDemo'
 import {
-  Overview, Requests, Users, Payments, Invoices, Plans, Analytics, Settings,
+  Overview, Requests, Users, Payments, Invoices, Plans, Analytics,
 } from './admin/Views'
+import { Settings } from './admin/Settings'
 import { ConnectionModal } from './admin/ConnectionModal'
 import { CredentialModal } from './admin/CredentialModal'
 import { StsAgents } from './admin/StsAgents'

@@ -4,10 +4,11 @@ import { Icon } from '../components/Icon'
 import { Reveal } from '../components/Reveal'
 import { ShowcaseMock } from '../components/ShowcaseMocks'
 import { T, useLang } from '../i18n/LangContext'
+import { useSiteConfig } from '../context/SiteConfigContext'
 import { useScrolled } from '../hooks/useScrolled'
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
-import { apiPost, saveSession, WHATSAPP, ADMIN_APP_URL } from '../lib/api'
-import { priceData, priceTabs } from '../data/pricing'
+import { apiPost, saveSession, ADMIN_APP_URL } from '../lib/api'
+import { priceTabs } from '../data/pricing'
 
 // transparent brand logo from public/ (base-aware so it works at any deploy path)
 const LOGO = import.meta.env.BASE_URL + 'logo.png'
@@ -51,6 +52,7 @@ const NAV_LINKS = [
 function Nav({ onLogin }) {
   const scrolled = useScrolled(30)
   const { toggle, isAr, t } = useLang()
+  const { whatsappUrl } = useSiteConfig()
   const [menuOpen, setMenuOpen] = useState(false)
   useLockBodyScroll(menuOpen)
 
@@ -72,7 +74,7 @@ function Nav({ onLogin }) {
           <button className="btn btn-ghost nav-desktop" style={{ padding: '9px 20px' }} onClick={onLogin}>
             <T k="nav_login" />
           </button>
-          <a className="btn btn-wa nav-desktop" style={{ padding: '9px 20px' }} href={WHATSAPP} target="_blank" rel="noreferrer">
+          <a className="btn btn-wa nav-desktop" style={{ padding: '9px 20px' }} href={whatsappUrl} target="_blank" rel="noreferrer">
             <Icon name="message-circle" size={17} />
             <T k="wa_us" />
           </a>
@@ -95,7 +97,7 @@ function Nav({ onLogin }) {
           ))}
         </div>
         <div className="mm-actions">
-          <a className="btn btn-wa" href={WHATSAPP} target="_blank" rel="noreferrer" onClick={close}>
+          <a className="btn btn-wa" href={whatsappUrl} target="_blank" rel="noreferrer" onClick={close}>
             <Icon name="message-circle" size={18} />
             <T k="wa_us" />
           </a>
@@ -111,6 +113,7 @@ function Nav({ onLogin }) {
 
 /* ---------------- Hero ---------------- */
 function Hero() {
+  const { whatsappUrl } = useSiteConfig()
   return (
     <header className="hero">
       <div className="wrap hero-in">
@@ -122,7 +125,7 @@ function Hero() {
           <T as="h1" k="hero_h1" html />
           <p className="sub"><T k="hero_sub" /></p>
           <div className="hero-cta">
-            <a className="btn btn-wa" href={WHATSAPP} target="_blank" rel="noreferrer">
+            <a className="btn btn-wa" href={whatsappUrl} target="_blank" rel="noreferrer">
               <Icon name="message-circle" size={18} />
               <T k="wa_us" />
             </a>
@@ -172,6 +175,8 @@ function Hero() {
 function Pricing() {
   const [tab, setTab] = useState('p-wa')
   const { t } = useLang()
+  const { pricing, contact } = useSiteConfig()
+  const priceData = pricing
   return (
     <section id="pricing">
       <div className="wrap">
@@ -195,7 +200,7 @@ function Pricing() {
                 <h3>{plan.name}</h3>
                 <div className="who">{plan.whoLiteral ? plan.who : t(plan.who)}</div>
                 <div className="price">
-                  {plan.price} <small>KWD/<T k="mo" /></small>
+                  {plan.price} <small>{contact?.currency || 'KWD'}/<T k="mo" /></small>
                 </div>
                 {plan.was && (
                   <div className="was">{plan.was} KWD <T k="sep" /></div>
@@ -342,6 +347,7 @@ function LoginModal({ open, onClose }) {
 /* ---------------- Page ---------------- */
 export default function Landing() {
   const { t } = useLang()
+  const { whatsappUrl, contact } = useSiteConfig()
   const [loginOpen, setLoginOpen] = useState(false)
 
   return (
@@ -448,7 +454,7 @@ export default function Landing() {
               <div><Icon name="check-circle-2" /><T k="rq3" /></div>
             </div>
             <div style={{ marginTop: 32 }}>
-              <a className="btn btn-wa" href={WHATSAPP} target="_blank" rel="noreferrer">
+              <a className="btn btn-wa" href={whatsappUrl} target="_blank" rel="noreferrer">
                 <Icon name="message-circle" size={18} />
                 <T k="wa_pref" />
               </a>
@@ -468,7 +474,7 @@ export default function Landing() {
               </a>
               <p style={{ fontSize: 14, maxWidth: 300, marginTop: 14 }}><T k="ft_p" /></p>
               <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
-                <a href={WHATSAPP} aria-label="WhatsApp" style={socialStyle}><Icon name="message-circle" size={17} /></a>
+                <a href={whatsappUrl} aria-label="WhatsApp" style={socialStyle}><Icon name="message-circle" size={17} /></a>
                 <a href="#" aria-label="Instagram" style={socialStyle}><Icon name="instagram" size={17} /></a>
                 <a href="#" aria-label="X" style={socialStyle}><Icon name="twitter" size={17} /></a>
               </div>
@@ -489,8 +495,8 @@ export default function Landing() {
             </div>
             <div>
               <h5><T k="ft_ct" /></h5>
-              <a href="mailto:sts@shgardiauto.com">sts@shgardiauto.com</a>
-              <a href={WHATSAPP}>+965 510 22389</a>
+              <a href={`mailto:${contact?.email || 'sts@shgardiauto.com'}`}>{contact?.email || 'sts@shgardiauto.com'}</a>
+              <a href={whatsappUrl}>{contact?.whatsapp || '+965 510 22389'}</a>
               <a href="#"><T k="ft_kw" /></a>
             </div>
           </div>
@@ -505,7 +511,7 @@ export default function Landing() {
         </div>
       </footer>
 
-      <a className="wa-float" href={WHATSAPP} target="_blank" rel="noreferrer" aria-label="WhatsApp us">
+      <a className="wa-float" href={whatsappUrl} target="_blank" rel="noreferrer" aria-label="WhatsApp us">
         <Icon name="message-circle" size={26} />
       </a>
 

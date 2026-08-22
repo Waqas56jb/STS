@@ -71,14 +71,34 @@ export function MessagesChart({ data }) {
   return <Line data={chart} options={{ plugins: { legend: { display: false } }, maintainAspectRatio: false, scales: { y: gridY, x: gridXoff } }} />
 }
 
-/* ---- Analytics: ARPU per month (revenue ÷ new paid customers) ---- */
+/* ---- Analytics: ARPU per month (revenue ÷ active paid customers) ---- */
 export function ArpuChart({ data }) {
-  if (!hasRows(data)) return <ChartEmpty />
+  const rows = (data || []).filter((r) => r?.m)
+  if (!hasRows(rows)) return <ChartEmpty />
+  const values = rows.map((r) => Number(r.arpu ?? 0))
   const chart = {
-    labels: data.map((r) => r.m),
-    datasets: [{ label: 'ARPU (KWD)', data: data.map((r) => r.arpu ?? r.total ?? 0), borderColor: palette.teal, tension: 0.4, borderWidth: 2.5, fill: true, backgroundColor: 'rgba(15,190,143,.1)' }],
+    labels: rows.map((r) => r.m),
+    datasets: [{
+      label: 'ARPU (KWD)',
+      data: values,
+      borderColor: palette.teal,
+      tension: 0.4,
+      borderWidth: 2.5,
+      fill: true,
+      backgroundColor: 'rgba(15,190,143,.1)',
+      pointRadius: rows.length <= 3 ? 5 : 3,
+      pointHoverRadius: 6,
+    }],
   }
-  const options = { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: gridY, x: gridXoff } }
+  const peak = Math.max(...values, 0)
+  const options = {
+    maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom' } },
+    scales: {
+      y: { ...gridY, beginAtZero: true, suggestedMax: peak > 0 ? peak * 1.2 : 10 },
+      x: gridXoff,
+    },
+  }
   return <Line data={chart} options={options} />
 }
 

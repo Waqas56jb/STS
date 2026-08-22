@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { dictionaries, en } from './dictionary'
+import { SiteConfigContext } from '../context/SiteConfigContext.jsx'
 
 /**
  * Language + direction context.
@@ -53,8 +54,9 @@ export function useLang() {
  * strings — everything here is authored by us, never user input.
  */
 export function T({ k, html = false, as: Tag = 'span', className, ...rest }) {
-  const { t } = useLang()
-  const value = t(k)
+  const { t, lang } = useLang()
+  const site = useContext(SiteConfigContext)
+  const value = site?.copy?.[lang]?.[k] ?? t(k)
   if (html) {
     return <Tag className={className} dangerouslySetInnerHTML={{ __html: value }} {...rest} />
   }

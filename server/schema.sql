@@ -262,7 +262,7 @@ create table if not exists sts_settings (
   updated_at  timestamptz default now()
 );
 insert into sts_settings (key,value) values
- ('support_whatsapp','+965 0000 0000'),
+ ('support_whatsapp','+965 510 22389'),
  ('support_email','sts@shgardiauto.com'),
  ('currency','KWD')
 on conflict (key) do nothing;

@@ -17,6 +17,14 @@ export async function ensureTrainingSchema() {
       where meta='__business_profile__' and coalesce(channel,'all')='all'`,
   )
   await backfillTenantIsolation()
+  await pool.query(
+    `update sts_settings set value='+965 510 22389', updated_at=now()
+      where key='support_whatsapp' and value in ('+965 0000 0000', '')`,
+  )
+  await pool.query(
+    `insert into sts_settings (key, value) values ('support_whatsapp', '+965 510 22389')
+     on conflict (key) do nothing`,
+  )
   await pool.query(`
     create table if not exists sts_customer_memory (
       id            uuid primary key default gen_random_uuid(),

@@ -1524,3 +1524,251 @@ html[dir='rtl'] .inv-paid-stamp { right: auto; left: 80px; transform: rotate(12d
   @page { size: A4; margin: 12mm; }
 }
 
+/* ============================================================
+   Admin Settings — website control center
+   ============================================================ */
+.settings-shell { max-width: 1280px; }
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.settings-title {
+  font-family: var(--disp);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.settings-sub { color: var(--mut); font-size: 13.5px; margin-top: 4px; max-width: 560px; }
+.settings-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-aside { order: -1; }
+}
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.settings-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--mut);
+  font-weight: 600;
+  font-size: 13px;
+  transition: 0.2s;
+}
+.settings-tab.on {
+  background: linear-gradient(135deg, var(--ink), var(--ink-2));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgba(7, 26, 43, 0.15);
+}
+.settings-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: 0 2px 12px rgba(7, 26, 43, 0.04);
+}
+.settings-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+.settings-hint {
+  color: var(--mut);
+  font-size: 12.5px;
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 700px) { .settings-grid-2 { grid-template-columns: 1fr; } }
+.settings-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+.settings-color {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafbfc;
+  cursor: pointer;
+}
+.settings-color input[type='color'] {
+  width: 100%;
+  height: 36px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.settings-color span { font-size: 12px; font-weight: 600; color: var(--ink); }
+.settings-color code { font-size: 10.5px; color: var(--mut); }
+.settings-lang-tabs,
+.settings-price-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.settings-lang-tabs button,
+.settings-price-tabs button {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--mut);
+}
+.settings-lang-tabs button.on,
+.settings-price-tabs button.on {
+  background: rgba(15, 190, 143, 0.12);
+  border-color: var(--lagoon);
+  color: var(--lagoon-d);
+}
+.settings-plan-list { display: flex; flex-direction: column; gap: 14px; }
+.settings-plan-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 0.8fr auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #fff, #f8fafc);
+}
+@media (max-width: 800px) {
+  .settings-plan-row { grid-template-columns: 1fr 1fr; }
+}
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--mut);
+  padding-bottom: 10px;
+}
+.settings-aside { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
+.settings-preview-wrap { padding-bottom: 16px; }
+.settings-preview {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  font-family: var(--pv-body, var(--body));
+  background: var(--pv-sand, #f6f4ef);
+}
+.settings-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #eef1f5;
+  border-bottom: 1px solid var(--line);
+}
+.settings-preview-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d1d9e3;
+}
+.settings-preview-url {
+  margin-inline-start: auto;
+  font-size: 10px;
+  color: var(--mut);
+}
+.settings-preview-hero {
+  padding: 18px 16px;
+  background: linear-gradient(160deg, var(--pv-navy, #071a2b), #0c2a44);
+  color: #fff;
+}
+.settings-preview-kick {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 10px;
+  margin-bottom: 10px;
+  color: var(--pv-primary, #0fbe8f);
+}
+.settings-preview-h1 {
+  font-family: var(--pv-disp, var(--disp));
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+.settings-preview-h1 .grad { color: var(--pv-primary, #0fbe8f); }
+.settings-preview-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+.settings-preview-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.settings-preview-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.settings-preview-btn.primary { background: var(--pv-primary, #0fbe8f); color: #03271b; }
+.settings-preview-btn.wa { background: var(--pv-wa, #25d366); color: #fff; }
+.settings-preview-plan {
+  margin: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 2px solid var(--pv-primary, #0fbe8f);
+}
+.settings-preview-plan-name { font-weight: 700; font-size: 12px; }
+.settings-preview-plan-price {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--pv-navy, #071a2b);
+  margin-top: 4px;
+}
+.settings-preview-plan-price small { font-size: 11px; font-weight: 600; color: var(--mut); }
+.settings-preview-foot {
+  padding: 10px 14px;
+  font-size: 11px;
+  color: var(--mut);
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+.settings-tip {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: linear-gradient(135deg, rgba(15, 190, 143, 0.08), rgba(91, 141, 239, 0.08));
+  border-color: rgba(15, 190, 143, 0.2);
+}
+.settings-tip p { font-size: 12.5px; color: var(--ink); line-height: 1.5; }
+
