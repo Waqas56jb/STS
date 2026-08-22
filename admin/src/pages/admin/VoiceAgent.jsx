@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icon'
 import { useAdminT } from '../../i18n/admin'
 import { apiGet, apiPut, apiPostAuth, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
-import { KbEditModal } from './KbEditModal'
+import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
 
 /**
  * Admin's own official STS voice agent (Twilio ⇄ OpenAI Realtime).
@@ -13,23 +13,24 @@ import { KbEditModal } from './KbEditModal'
 const fmtDur = (n) => { const s = Number(n || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` }
 const stBadge = (s) => (s === 'completed' ? 'b-ok' : ['in_progress', 'ringing', 'initiated'].includes(s) ? 'b-warn' : 'b-bad')
 
-export function VoiceAgent() {
-  const { isAr } = useAdminT()
+export function VoiceAgent({ businessId }) {
   const [reload, setReload] = useState(0)
   const [ctx, setCtx] = useState(null)
+  const [pid, setPid] = useState(businessId || '')
   useEffect(() => { apiGet('/admin/voice/context').then(setCtx).catch(() => {}) }, [])
+  useEffect(() => {
+    if (businessId) setPid(businessId)
+    else apiGet('/admin/agent/context').then((c) => setPid(c?.business_id || '')).catch(() => {})
+  }, [businessId])
 
   return (
     <>
       <div className="grid g2" style={{ marginBottom: 18 }}>
         <VoiceConnection />
-        <VoiceTraining />
-      </div>
-      <div className="grid g2" style={{ marginBottom: 18 }}>
         <DialCard onCalled={() => setReload((n) => n + 1)} />
-        <WebhookCard ctx={ctx} />
       </div>
-      <div style={{ marginBottom: 18 }}><VoiceKnowledge /></div>
+      <div style={{ marginBottom: 18 }}><WebhookCard ctx={ctx} /></div>
+      {pid && <div style={{ marginBottom: 18 }}><TrainingStudio api={adminTrainingApi(pid)} defaultChannel="voice" /></div>}
       <CallHistory reloadKey={reload} />
     </>
   )

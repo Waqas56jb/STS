@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { useAdminT } from '../../i18n/admin'
-import { apiGet, apiPut, apiPostAuth, apiDelete } from '../../lib/api'
+import { apiGet, apiPut, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
 import { VoiceAgent } from './VoiceAgent'
-import { KbEditModal } from './KbEditModal'
 import { WhatsAppQrPanel } from './WhatsAppQrPanel'
+import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
 
 /**
  * STS's OWN agents. The admin configures + trains STS's official WhatsApp,
@@ -16,6 +16,7 @@ import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 const TABS = [
   { v: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
   { v: 'instagram', label: 'Instagram', icon: 'instagram' },
+  { v: 'website', label: 'Website', icon: 'globe' },
   { v: 'voice', label: 'Voice', icon: 'phone-call' },
 ]
 
@@ -33,7 +34,9 @@ export function StsAgents() {
           </button>
         ))}
       </div>
-      {tab === 'voice' ? <VoiceAgent /> : <ChannelAgent key={tab} channel={tab} ctx={ctx} />}
+      {tab === 'voice' ? <VoiceAgent businessId={ctx?.business_id} />
+        : tab === 'website' ? (ctx?.business_id ? <TrainingStudio api={adminTrainingApi(ctx.business_id)} defaultChannel="website" /> : null)
+        : <ChannelAgent key={tab} channel={tab} ctx={ctx} />}
     </>
   )
 }
@@ -44,10 +47,9 @@ function ChannelAgent({ channel, ctx }) {
     <>
       <div className="grid g2" style={{ marginBottom: 18 }}>
         <AgentConnection channel={channel} spec={ctx?.spec?.[channel]} />
-        <AgentBot channel={channel} />
+        {channel === 'whatsapp' && <WhatsAppWebhook ctx={ctx} />}
       </div>
-      {channel === 'whatsapp' && <div style={{ marginBottom: 18 }}><WhatsAppWebhook ctx={ctx} /></div>}
-      <AgentKnowledge channel={channel} businessId={ctx?.business_id} />
+      {ctx?.business_id && <TrainingStudio api={adminTrainingApi(ctx.business_id)} defaultChannel={channel} />}
     </>
   )
 }
@@ -137,45 +139,6 @@ function AgentConnection({ channel, spec }) {
           {current?.connected && <button className="btn btn-o" onClick={disconnect}><Icon name="trash-2" size={15} /></button>}
         </div>
       )}
-    </div>
-  )
-}
-
-/* ---------------- bot training (greeting / tone / language / toggles) ---------------- */
-function AgentBot({ channel }) {
-  const { isAr } = useAdminT()
-  const toast = useToast()
-  const [b, setB] = useState({ auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto' })
-  useEffect(() => { apiGet(`/admin/agent/${channel}/bot`).then((r) => r && setB((s) => ({ ...s, ...r }))).catch(() => {}) }, [channel])
-  const set = (k, v) => setB((s) => ({ ...s, [k]: v }))
-  async function save() { try { await apiPut(`/admin/agent/${channel}/bot`, b); toast(isAr ? 'تم الحفظ ✓' : 'Saved ✓') } catch { toast(isAr ? 'فشل الحفظ' : 'Save failed') } }
-  const Toggle = ({ k, label, sub }) => (
-    <div className="row"><div><b>{label}</b>{sub && <p>{sub}</p>}</div>
-      <label className="switch"><input type="checkbox" checked={!!b[k]} onChange={(e) => set(k, e.target.checked)} /><span className="slider" /></label>
-    </div>
-  )
-  return (
-    <div className="card">
-      <h3><Icon name="bot" />{isAr ? 'تدريب الوكيل' : 'Agent training'}</h3>
-      <Toggle k="auto_reply" label={isAr ? 'رد تلقائي بالذكاء' : 'Auto-reply with AI'} sub={isAr ? 'يرد على الرسائل فوراً' : 'Answer messages instantly, 24/7'} />
-      <Toggle k="human_handoff" label={isAr ? 'تحويل لموظف' : 'Human handoff'} sub={isAr ? 'عند طلب العميل شخصاً' : 'Escalate when the customer asks for a person'} />
-      <div className="field" style={{ marginTop: 12 }}><label>{isAr ? 'رسالة الترحيب' : 'Greeting message'}</label>
-        <textarea rows="2" value={b.greeting || ''} onChange={(e) => set('greeting', e.target.value)} />
-      </div>
-      <div className="field"><label>{isAr ? 'الأسلوب' : 'Tone'}</label>
-        <select value={b.tone || 'friendly'} onChange={(e) => set('tone', e.target.value)}>
-          <option value="friendly">{isAr ? 'ودود' : 'Friendly'}</option>
-          <option value="professional">{isAr ? 'احترافي' : 'Professional'}</option>
-          <option value="playful">{isAr ? 'مرح' : 'Playful'}</option>
-        </select>
-      </div>
-      <div className="field"><label>{isAr ? 'اللغة' : 'Language'}</label>
-        <select value={b.language || 'auto'} onChange={(e) => set('language', e.target.value)}>
-          <option value="auto">{isAr ? 'تلقائي' : 'Auto'}</option>
-          <option value="en">English</option><option value="ar">العربية</option>
-        </select>
-      </div>
-      <button className="btn btn-g" onClick={save}><Icon name="save" size={16} />{isAr ? 'حفظ' : 'Save'}</button>
     </div>
   )
 }

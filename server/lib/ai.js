@@ -14,6 +14,13 @@ import { formatKnowledgeForPrompt } from './kbPrompt.js'
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
 
+/** Widget bot settings are stored as `web`; knowledge UI uses `website`. */
+export function botChannel(channel) {
+  return channel === 'website' ? 'web' : channel
+}
+
+const KB_SCOPE = `channel='all' or channel=$2 or ($2 in ('web','website') and channel in ('web','website'))`
+
 const TONE = {
   friendly: 'friendly, warm and helpful',
   professional: 'professional, precise and concise',
@@ -37,6 +44,7 @@ function buildSystemPrompt({ businessName, bot, kb }) {
     `Answer using ONLY the business knowledge below (uploaded documents, training notes, Q&As, and URLs). If the answer isn't there, say you'll connect the customer to a team member — do not guess or invent prices, stock, delivery times or policies.`,
     `Be ${tone}. Reply in the customer's language (Arabic or English, matching their message). Keep replies short and natural for WhatsApp — 1 to 4 short sentences, no markdown.`,
     bot?.greeting ? `Tone/greeting reference: ${bot.greeting}` : '',
+    bot?.rules ? `AGENT RULES (always follow):\n${bot.rules}` : '',
     '',
     'BUSINESS KNOWLEDGE:',
     kbText,
@@ -53,9 +61,9 @@ function buildSystemPrompt({ businessName, bot, kb }) {
  */
 export async function generateReply({ businessId, businessName, channel = 'whatsapp', userText, history = [] }) {
   const [bot, kb, key] = await Promise.all([
-    one(`select greeting, tone, language from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, channel]),
-    // this channel's own knowledge + anything scoped to "all" (shared)
-    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='all' or channel=$2) order by created_at desc limit 80`, [businessId, channel]),
+    one(`select greeting, tone, language, rules from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, botChannel(channel)]),
+    // this channel's own knowledge + shared 'all' (+ web/website aliases)
+    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (${KB_SCOPE}) order by created_at desc limit 80`, [businessId, channel]),
     resolveOpenAIKey(),
   ])
 

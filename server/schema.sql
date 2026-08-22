@@ -114,9 +114,11 @@ create table if not exists sts_bot_settings (
   language        text default 'auto',                -- auto | ar | en
   widget_color    text default '#0FBE8F',
   widget_position text default 'bottom_right',
+  rules           text,
   updated_at      timestamptz default now(),
   unique(business_id, channel)
 );
+alter table sts_bot_settings add column if not exists rules text;
 
 -- ---------- knowledge base ----------
 create table if not exists sts_knowledge_sources (

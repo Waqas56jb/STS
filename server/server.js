@@ -439,26 +439,33 @@ app.patch('/api/conversations/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true })
 }))
 
-// Bot settings
-app.get('/api/bots/:channel', auth, wrap(async (req, res) => {
-  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [biz(req), req.params.channel])
-  res.json(row || { channel: req.params.channel, auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto' })
-}))
+const BOT_DEFAULTS = { auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto', widget_color: '#0FBE8F', widget_position: 'bottom_right', rules: '' }
+const toBotChannel = (c) => (c === 'website' ? 'web' : c)
 
-app.put('/api/bots/:channel', auth, wrap(async (req, res) => {
-  const b = req.body || {}
-  const row = await one(
-    `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+async function upsertBotSettings(businessId, channel, b = {}) {
+  const ch = toBotChannel(channel)
+  return one(
+    `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, rules, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
      on conflict (business_id, channel) do update set
        auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
        greeting=excluded.greeting, tone=excluded.tone, language=excluded.language,
-       widget_color=excluded.widget_color, widget_position=excluded.widget_position, updated_at=now()
+       widget_color=excluded.widget_color, widget_position=excluded.widget_position, rules=excluded.rules, updated_at=now()
      returning *`,
-    [biz(req), req.params.channel, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false,
-     b.greeting || '', b.tone || 'friendly', b.language || 'auto', b.widget_color || '#0FBE8F', b.widget_position || 'bottom_right'],
+    [businessId, ch, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false,
+     b.greeting || '', b.tone || 'friendly', b.language || 'auto', b.widget_color || '#0FBE8F', b.widget_position || 'bottom_right', b.rules || ''],
   )
-  res.json(row)
+}
+
+// Bot settings
+app.get('/api/bots/:channel', auth, wrap(async (req, res) => {
+  const ch = toBotChannel(req.params.channel)
+  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [biz(req), ch])
+  res.json(row || { channel: ch, ...BOT_DEFAULTS })
+}))
+
+app.put('/api/bots/:channel', auth, wrap(async (req, res) => {
+  res.json(await upsertBotSettings(biz(req), req.params.channel, req.body || {}))
 }))
 
 // Knowledge base (per-agent scoped via `channel`; 'all' = shared)
@@ -506,28 +513,29 @@ const kbUpload = multer({
   },
 })
 
-app.post('/api/knowledge/upload', auth, (req, res, next) => {
+async function saveUploadedKnowledge(businessId, file, { title, channel } = {}) {
+  const text = await extractDocumentText(file.buffer, file.originalname, file.mimetype)
+  const name = String(title || file.originalname || 'Uploaded document').slice(0, 200)
+  const sizeKb = Math.max(1, Math.round(file.size / 1024))
+  return one(
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
+     values ($1,'file',$2,$3,null,$4,$5,'trained') returning ${KB_COLS}`,
+    [businessId, name, text, `${file.originalname} · ${sizeKb} KB`, kbChannel(channel)],
+  )
+}
+
+function handleKbUpload(req, res, next) {
   kbUpload.single('file')(req, res, (err) => {
     if (!err) return next()
     const tooBig = err.code === 'LIMIT_FILE_SIZE'
     res.status(400).json({ error: tooBig ? 'File too large (max 10 MB)' : (err.message || 'Upload failed') })
   })
-}, wrap(async (req, res) => {
+}
+
+app.post('/api/knowledge/upload', auth, handleKbUpload, wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file required' })
-  let text
-  try {
-    text = await extractDocumentText(req.file.buffer, req.file.originalname, req.file.mimetype)
-  } catch (e) {
-    return res.status(400).json({ error: e.message || 'Could not read file' })
-  }
-  const title = String(req.body?.title || req.file.originalname || 'Uploaded document').slice(0, 200)
-  const sizeKb = Math.max(1, Math.round(req.file.size / 1024))
-  const row = await one(
-    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
-     values ($1,'file',$2,$3,null,$4,$5,'trained') returning ${KB_COLS}`,
-    [biz(req), title, text, `${req.file.originalname} · ${sizeKb} KB`, kbChannel(req.body?.channel)],
-  )
-  res.status(201).json(row)
+  try { res.status(201).json(await saveUploadedKnowledge(biz(req), req.file, req.body || {})) }
+  catch (e) { res.status(400).json({ error: e.message || 'Could not read file' }) }
 }))
 
 app.put('/api/knowledge/:id', auth, wrap(async (req, res) => {
@@ -959,6 +967,37 @@ app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, wrap(async (req
   res.status(201).json(row)
 }))
 
+app.post('/api/admin/businesses/:id/knowledge/upload', auth, adminOnly, handleKbUpload, wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'file required' })
+  try { res.status(201).json(await saveUploadedKnowledge(req.params.id, req.file, req.body || {})) }
+  catch (e) { res.status(400).json({ error: e.message || 'Could not read file' }) }
+}))
+
+app.get('/api/admin/businesses/:id/profile', auth, adminOnly, wrap(async (req, res) => {
+  const row = await one(`select name, whatsapp, hours, language from sts_businesses where id=$1`, [req.params.id])
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json({ business_name: row.name, whatsapp: row.whatsapp || '', hours: row.hours || '', language: row.language || 'auto' })
+}))
+
+app.put('/api/admin/businesses/:id/profile', auth, adminOnly, wrap(async (req, res) => {
+  const { business_name, whatsapp, hours, language } = req.body || {}
+  const sets = [], params = [req.params.id]
+  const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }
+  add('name', business_name); add('whatsapp', whatsapp); add('hours', hours); add('language', language)
+  if (sets.length) await pool.query(`update sts_businesses set ${sets.join(', ')} where id=$1`, params)
+  res.json({ ok: true })
+}))
+
+app.get('/api/admin/businesses/:id/bots/:channel', auth, adminOnly, wrap(async (req, res) => {
+  const ch = toBotChannel(req.params.channel)
+  const row = await one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [req.params.id, ch])
+  res.json(row || { channel: ch, ...BOT_DEFAULTS })
+}))
+
+app.put('/api/admin/businesses/:id/bots/:channel', auth, adminOnly, wrap(async (req, res) => {
+  res.json(await upsertBotSettings(req.params.id, req.params.channel, req.body || {}))
+}))
+
 app.put('/api/admin/knowledge/:id', auth, adminOnly, wrap(async (req, res) => {
   const row = await updateKb(req.params.id, req.body)
   if (!row) return res.status(404).json({ error: 'Not found' })
@@ -1172,22 +1211,22 @@ app.get('/api/admin/voice/bot', auth, adminOnly, wrap(async (_req, res) => {
   res.json(row || { channel: 'voice', greeting: '', tone: 'friendly', language: 'auto' })
 }))
 app.put('/api/admin/voice/bot', auth, adminOnly, wrap(async (req, res) => {
-  const pid = await platformBusinessId()
-  const b = req.body || {}
-  const row = await one(
-    `insert into sts_bot_settings (business_id, channel, greeting, tone, language, updated_at)
-     values ($1,'voice',$2,$3,$4, now())
-     on conflict (business_id, channel) do update set greeting=excluded.greeting, tone=excluded.tone, language=excluded.language, updated_at=now()
-     returning *`,
-    [pid, b.greeting || '', b.tone || 'friendly', b.language || 'auto'],
-  )
-  res.json(row)
+  res.json(await upsertBotSettings(await platformBusinessId(), 'voice', req.body || {}))
 }))
 app.get('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (_req, res) => {
   const pid = await platformBusinessId()
   // the voice agent uses its own 'voice' entries + anything shared as 'all'
   res.json(await many(`select ${KB_COLS} from sts_knowledge_sources where business_id=$1 and channel in ('all','voice') order by created_at desc`, [pid]))
 }))
+app.post('/api/admin/voice/knowledge/upload', auth, adminOnly, handleKbUpload, wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'file required' })
+  try {
+    res.status(201).json(await saveUploadedKnowledge(await platformBusinessId(), req.file, {
+      title: req.body?.title, channel: req.body?.channel === 'all' ? 'all' : 'voice',
+    }))
+  } catch (e) { res.status(400).json({ error: e.message || 'Could not read file' }) }
+}))
+
 app.post('/api/admin/voice/knowledge', auth, adminOnly, wrap(async (req, res) => {
   const pid = await platformBusinessId()
   const { type, title, content, source_url, meta, channel } = req.body || {}
@@ -1261,18 +1300,7 @@ app.get('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) 
   res.json(row || { channel: req.params.channel, auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto' })
 }))
 app.put('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) => {
-  const pid = await platformBusinessId()
-  const b = req.body || {}
-  const row = await one(
-    `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8, now())
-     on conflict (business_id, channel) do update set
-       auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
-       greeting=excluded.greeting, tone=excluded.tone, language=excluded.language, updated_at=now()
-     returning *`,
-    [pid, req.params.channel, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false, b.greeting || '', b.tone || 'friendly', b.language || 'auto'],
-  )
-  res.json(row)
+  res.json(await upsertBotSettings(await platformBusinessId(), req.params.channel, req.body || {}))
 }))
 
 /* ================================================================
