@@ -22,9 +22,22 @@ import { transcribeWhatsAppAudio } from './whatsappVoice.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_DIR = path.resolve(__dirname, '../.whatsapp-sessions')
-const SESSION_ROOT = process.env.WHATSAPP_QR_SESSION_DIR || DEFAULT_DIR
+
+function resolveSessionRoot() {
+  if (process.env.WHATSAPP_QR_SESSION_DIR) return process.env.WHATSAPP_QR_SESSION_DIR
+  if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+    return path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'whatsapp-sessions')
+  }
+  return DEFAULT_DIR
+}
+
+const SESSION_ROOT = resolveSessionRoot()
 const QR_ENABLED = process.env.WHATSAPP_QR_ENABLED !== 'false'
 const log = (...a) => console.log('[WhatsApp QR]', ...a)
+try { fs.mkdirSync(SESSION_ROOT, { recursive: true }) } catch { /* ignore */ }
+if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+  log('session dir:', SESSION_ROOT)
+}
 
 /** @type {Map<string, { sock: any, status: string, qr: string|null, displayNumber: string, error: string|null, connectedAt: string|null }>} */
 const sessions = new Map()

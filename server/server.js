@@ -35,7 +35,7 @@ import {
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { WebSocketServer } from 'ws'
+import { publicBaseUrl, publicWsUrl, corsOrigins as railwayCorsOrigins } from './lib/publicUrl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -45,10 +45,10 @@ app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody =
 // Twilio posts webhooks as application/x-www-form-urlencoded
 app.use(express.urlencoded({ extended: false }))
 
-const origins = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
+const origins = [
+  ...(process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  ...railwayCorsOrigins(),
+]
 app.use(
   cors({
     origin(origin, cb) {
@@ -1522,19 +1522,13 @@ function catLabel(c) {
 const digits = (s) => String(s || '').replace(/[^\d+]/g, '')
 
 function voiceBase(req) {
-  if (process.env.VOICE_PUBLIC_BASE_URL) return process.env.VOICE_PUBLIC_BASE_URL.replace(/\/$/, '')
-  const proto = req.get('x-forwarded-proto') || req.protocol || 'http'
-  return `${proto}://${req.get('host')}`
+  return publicBaseUrl(req)
 }
 function voiceWsUrl(req) {
-  if (process.env.VOICE_PUBLIC_WS_URL) return process.env.VOICE_PUBLIC_WS_URL
-  const proto = (req.get('x-forwarded-proto') || req.protocol) === 'https' ? 'wss' : 'ws'
-  return `${proto}://${req.get('host')}/voice-stream`
+  return publicWsUrl(req, '/voice-stream')
 }
 function vonageWsUrl(req) {
-  if (process.env.VONAGE_PUBLIC_WS_URL) return process.env.VONAGE_PUBLIC_WS_URL
-  const proto = (req.get('x-forwarded-proto') || req.protocol) === 'https' ? 'wss' : 'ws'
-  return `${proto}://${req.get('host')}/vonage-stream`
+  return publicWsUrl(req, '/vonage-stream')
 }
 function voiceWebhookInfo(base, req) {
   return {
@@ -2078,8 +2072,10 @@ waWss.on('connection', async (ws, req) => {
 ensureTrainingSchema()
   .catch((e) => console.error('training schema ensure failed:', e.message))
   .finally(() => {
-    server.listen(PORT, () => {
-      console.log(`STS API + voice WS + WhatsApp QR on http://localhost:${PORT}`)
+    const host = process.env.HOST || '0.0.0.0'
+    server.listen(PORT, host, () => {
+      const pub = publicBaseUrl()
+      console.log(`STS API + voice WS + WhatsApp QR on ${pub} (listening ${host}:${PORT})`)
       restoreQrSessions().catch((e) => console.error('[WhatsApp QR] restore failed', e.message))
     })
   })
