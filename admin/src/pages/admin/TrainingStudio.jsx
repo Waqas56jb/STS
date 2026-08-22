@@ -22,6 +22,14 @@ const KB_ACCEPT = '.pdf,.txt,.md,.csv,.docx,.xlsx,.xls,application/pdf,text/plai
 const KB_MAX = 10 * 1024 * 1024
 const KB_ICON = { file: 'file-text', url: 'globe', qa: 'message-square' }
 
+const PAGE_TITLE = {
+  all: 'tr_page_all',
+  whatsapp: 'tr_page_wa',
+  instagram: 'tr_page_ig',
+  website: 'tr_page_web',
+  voice: 'tr_page_vc',
+}
+
 export const AGENTS = [
   { v: 'all', icon: 'sparkles', key: 'tr_all', cls: 'lagoon' },
   { v: 'whatsapp', icon: 'message-circle', label: 'WhatsApp', cls: 'wa' },
@@ -92,9 +100,21 @@ export function TrainingStudio({
   const [dragOver, setDragOver] = useState(false)
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState('')
+  const [learn, setLearn] = useState({ open: false, done: false })
 
   const endpoints = api
   const scope = agent
+
+  async function withLearn(fn) {
+    setLearn({ open: true, done: false })
+    try {
+      await fn()
+      setLearn({ open: true, done: true })
+      await new Promise((r) => setTimeout(r, 1100))
+    } finally {
+      setLearn({ open: false, done: false })
+    }
+  }
 
   const load = async () => {
     try {
@@ -129,8 +149,7 @@ export function TrainingStudio({
 
   const shown = sources.filter((s) => {
     if (s.meta === PROFILE_META) return false
-    if (agent === 'all') return true
-    return (s.channel || 'all') === 'all' || (s.channel || 'all') === agent
+    return (s.channel || 'all') === agent
   })
 
   async function saveProfile() {
@@ -150,7 +169,7 @@ export function TrainingStudio({
         const row = await endpoints.createKnowledge(body)
         setProfileId(row.id)
       }
-      toast(); load()
+      await withLearn(async () => { toast(); await load() })
     } catch { toast(t('save_failed')) }
     finally { setSaving('') }
   }
@@ -160,26 +179,29 @@ export function TrainingStudio({
     try {
       const channels = agent === 'all' ? ['whatsapp', 'instagram', 'website', 'voice'] : [agent]
       for (const ch of channels) await endpoints.saveBot(ch, bot)
-      toast()
+      await withLearn(async () => { toast() })
     } catch { toast(t('save_failed')) }
     finally { setSaving('') }
   }
 
   async function importUrl() {
     if (!url.trim()) return
-    await endpoints.createKnowledge({ type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL', channel: scope }).catch(() => {})
-    setUrl(''); toast(); load()
+    await endpoints.createKnowledge({ type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL', channel: scope })
+    setUrl('')
+    await withLearn(async () => { toast(); await load() })
   }
   async function addQa() {
     if (!q.trim()) return
-    await endpoints.createKnowledge({ type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A', channel: scope }).catch(() => {})
-    setQ(''); setA(''); toast(); load()
+    await endpoints.createKnowledge({ type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A', channel: scope })
+    setQ(''); setA('')
+    await withLearn(async () => { toast(); await load() })
   }
   async function addNote() {
     const text = note.trim()
     if (!text) return
-    await endpoints.createKnowledge({ type: 'qa', title: text.split('\n')[0].slice(0, 80), content: text, meta: 'Training note', channel: scope }).catch(() => {})
-    setNote(''); toast(); load()
+    await endpoints.createKnowledge({ type: 'qa', title: text.split('\n')[0].slice(0, 80), content: text, meta: 'Training note', channel: scope })
+    setNote('')
+    await withLearn(async () => { toast(); await load() })
   }
   async function uploadFiles(list) {
     const files = [...(list || [])]
@@ -192,7 +214,7 @@ export function TrainingStudio({
         await endpoints.uploadFile(file, { channel: scope, title: file.name })
         ok += 1
       }
-      if (ok) toast()
+      if (ok) await withLearn(async () => { toast() })
     } catch (e) { toast(e.message || t('kb_upload_fail')) }
     finally {
       setUploading(false)
@@ -209,15 +231,16 @@ export function TrainingStudio({
   const setP = (k, v) => setProfile((s) => ({ ...s, [k]: v }))
   const setB = (k, v) => setBot((s) => ({ ...s, [k]: v }))
   const agentMeta = AGENTS.find((x) => x.v === agent) || AGENTS[0]
-  const agentName = agentMeta.key ? t(agentMeta.key) : agentMeta.label
+  const agentName = t(PAGE_TITLE[agent] || agentMeta.key || '') || agentMeta.label
+  const snippet = (s) => String(s.content || s.source_url || '').replace(/\s+/g, ' ').trim().slice(0, 96)
 
   return (
-    <div className={`train${compact ? ' compact' : ''}`}>
-      <header className="train-hero">
+    <div className={`train${compact ? ' compact' : ''} train-${agentMeta.cls}`}>
+      <header className={`train-hero ${agentMeta.cls}`}>
         <div>
-          <div className="train-kicker"><Icon name="sparkles" size={14} /><T k="tr_kicker" /></div>
-          <h2><T k="tr_h" /></h2>
-          <p><T k="tr_p" /></p>
+          <div className="train-kicker"><Icon name={agentMeta.icon} size={15} />{t('tr_now')}</div>
+          <h2>{agentName}</h2>
+          <p>{t('tr_page_sub').replace('{agent}', agentName)}</p>
         </div>
         <div className="train-stat">
           <b>{shown.length}</b>
@@ -239,10 +262,10 @@ export function TrainingStudio({
         ))}
       </div>
 
-      <div className="train-layout">
+      <div className="train-layout" key={agent}>
         <div className="train-flow">
           <section className="train-card">
-            <div className="train-step"><span>1</span><div><b><T k="tr_s1" /></b><small><T k="tr_s1p" /></small></div></div>
+            <div className="train-step"><span className="train-num">1</span><div className="train-step-copy"><b><T k="tr_s1" /></b><small><T k="tr_s1p" /></small></div></div>
             <div className="train-grid">
               <div className="field"><label><T k="tr_biz" /></label>
                 <input value={profile.name} onChange={(e) => setP('name', e.target.value)} placeholder={t('f_biz')} /></div>
@@ -267,7 +290,7 @@ export function TrainingStudio({
           </section>
 
           <section className="train-card">
-            <div className="train-step"><span>2</span><div><b><T k="tr_s2" /></b><small>{t('tr_s2p').replace('{agent}', agentName)}</small></div></div>
+            <div className="train-step"><span className="train-num">2</span><div className="train-step-copy"><b><T k="tr_s2" /></b><small>{t('tr_s2p').replace('{agent}', agentName)}</small></div></div>
             {agent !== 'voice' && (
               <>
                 <div className="row"><div><b><T k="auto_re" /></b><p><T k="auto_rep" /></p></div>
@@ -317,7 +340,7 @@ export function TrainingStudio({
           </section>
 
           <section className="train-card">
-            <div className="train-step"><span>3</span><div><b><T k="tr_s3" /></b><small><T k="tr_s3p" /></small></div></div>
+            <div className="train-step"><span className="train-num">3</span><div className="train-step-copy"><b><T k="tr_s3" /></b><small><T k="tr_s3p" /></small></div></div>
             <div
               className={`drop${dragOver ? ' over' : ''}${uploading ? ' busy' : ''}`}
               onClick={() => !uploading && fileRef.current?.click()}
@@ -348,25 +371,29 @@ export function TrainingStudio({
         </div>
 
         <aside className="train-card train-lib">
-          <div className="train-step"><span>4</span><div><b><T k="kb_src" /></b><small>{agentName}</small></div>
+          <div className="train-step">
+            <span className="train-num">4</span>
+            <div className="train-step-copy"><b><T k="kb_src" /></b><small>{agentName}</small></div>
             <span className="badge b-info">{shown.length}</span>
           </div>
           {shown.map((s) => (
             <div className="kb-item" key={s.id}>
               <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
-              <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setEditing(s)}>
+              <div className="kb-copy" onClick={() => setEditing(s)}>
                 <b>{s.title}</b>
-                <span>{s.meta && s.meta !== PROFILE_META ? s.meta : (s.type || '')}</span>
+                <span>{snippet(s) || (s.meta && s.meta !== PROFILE_META ? s.meta : s.type)}</span>
               </div>
               <span className={`badge ${(s.channel || 'all') === 'all' ? 'b-info' : 'b-ok'}`}>
                 {(s.channel || 'all') === 'all' ? t('tr_all_short') : (s.channel || '').toUpperCase()}
               </span>
-              <button className="btn btn-o" style={{ padding: '5px 9px' }} onClick={() => setEditing(s)} title={t('edit')}>
-                <Icon name="pencil" size={13} />
-              </button>
-              <button className="btn btn-o" style={{ padding: '5px 9px' }} onClick={() => remove(s.id)}>
-                <Icon name="trash-2" size={13} />
-              </button>
+              <div className="kb-actions">
+                <button className="btn btn-o" onClick={() => setEditing(s)} title={t('edit')}>
+                  <Icon name="pencil" size={13} />
+                </button>
+                <button className="btn btn-o" onClick={() => remove(s.id)}>
+                  <Icon name="trash-2" size={13} />
+                </button>
+              </div>
             </div>
           ))}
           {shown.length === 0 && <div className="train-empty"><T k="kb_empty" /></div>}
@@ -374,16 +401,37 @@ export function TrainingStudio({
         </aside>
       </div>
 
+      <LearnOverlay open={learn.open} done={learn.done} agentName={agentName} cls={agentMeta.cls} t={t} />
+
       {editing && (
         <EditModal
           entry={editing}
           t={t}
           isAr={isAr}
           onClose={() => setEditing(null)}
-          onSaved={load}
+          onSaved={async () => { await withLearn(async () => { await load() }) }}
           update={endpoints.updateKnowledge}
         />
       )}
+    </div>
+  )
+}
+
+function LearnOverlay({ open, done, agentName, cls, t }) {
+  if (!open) return null
+  return (
+    <div className={`learn-ov${done ? ' done' : ''}`}>
+      <div className={`learn-card ${cls}`}>
+        <div className="learn-orbit">
+          <span className="learn-spark s1">✦</span>
+          <span className="learn-spark s2">✦</span>
+          <span className="learn-spark s3">✦</span>
+          <div className="learn-bot"><Icon name="bot" size={34} /></div>
+        </div>
+        <b>{done ? t('tr_learned') : t('tr_learn')}</b>
+        <small>{agentName}</small>
+        <div className="learn-bar"><i /></div>
+      </div>
     </div>
   )
 }
