@@ -113,7 +113,7 @@ async function buildInstructions(businessId, direction) {
   const [biz, bot, kb] = await Promise.all([
     one(`select name from sts_businesses where id=$1`, [businessId]),
     one(`select greeting, tone, language, rules from sts_bot_settings where business_id=$1 and channel='voice'`, [businessId]),
-    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='all' or channel='voice') order by created_at desc limit 80`, [businessId]),
+    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='voice' or (channel='all' and coalesce(meta,'') <> '__business_profile__')) order by created_at desc limit 80`, [businessId]),
   ])
   const name = biz?.name || 'this business'
   const tone = TONE[bot?.tone] || TONE.friendly

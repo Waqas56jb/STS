@@ -8,6 +8,13 @@ export async function ensureTrainingSchema() {
   await pool.query(`alter table sts_knowledge_sources add column if not exists channel text default 'all'`)
   await pool.query(`alter table sts_businesses add column if not exists owner_user_id uuid references sts_users(id) on delete set null`)
   await pool.query(`create index if not exists idx_sts_biz_owner on sts_businesses(owner_user_id)`)
+  // Old training saved one shared business card (channel=all). That leaked
+  // WhatsApp form data onto Instagram/voice/web. Keep it on WhatsApp only.
+  await pool.query(
+    `update sts_knowledge_sources
+        set channel='whatsapp'
+      where meta='__business_profile__' and coalesce(channel,'all')='all'`,
+  )
   await backfillTenantIsolation()
   console.log('✓ training schema + tenant isolation ready')
 }

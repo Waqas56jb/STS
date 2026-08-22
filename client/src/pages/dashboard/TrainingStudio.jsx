@@ -32,12 +32,20 @@ const emptyBot = {
   widget_color: '#0FBE8F', widget_position: 'bottom_right', rules: '',
 }
 
+const PHONE_KEY = {
+  all: 'tr_phone',
+  whatsapp: 'tr_phone_wa',
+  instagram: 'tr_phone_ig',
+  website: 'tr_phone_web',
+  voice: 'tr_phone_vc',
+}
+
 function formatProfile(p) {
   return [
     p.name && `Business name: ${p.name}`,
     p.about && `About: ${p.about}`,
     p.hours && `Hours: ${p.hours}`,
-    p.phone && `WhatsApp / phone: ${p.phone}`,
+    p.phone && `Phone: ${p.phone}`,
     p.email && `Email: ${p.email}`,
     p.address && `Address: ${p.address}`,
     p.services && `Services / products: ${p.services}`,
@@ -54,12 +62,16 @@ function parseProfile(content = '') {
     name: get('Business name'),
     about: get('About'),
     hours: get('Hours'),
-    phone: get('WhatsApp / phone'),
+    phone: get('Phone') || get('WhatsApp / phone') || get('Instagram'),
     email: get('Email'),
     address: get('Address'),
     services: get('Services / products'),
     website: get('Website'),
   }
+}
+
+function profileForAgent(rows, agent) {
+  return (rows || []).find((s) => s.meta === PROFILE_META && (s.channel || 'all') === agent) || null
 }
 
 /**
@@ -105,33 +117,27 @@ export function TrainingStudio({
 
   const load = async () => {
     try {
-      const [kb, me, settings] = await Promise.all([
+      const [kb, settings] = await Promise.all([
         endpoints.listKnowledge(),
-        endpoints.loadProfile().catch(() => ({})),
-        endpoints.loadBot(agent === 'all' ? 'whatsapp' : agent).catch(() => null),
+        agent === 'all' ? Promise.resolve(null) : endpoints.loadBot(agent).catch(() => null),
       ])
       const rows = Array.isArray(kb) ? kb : []
       setSources(rows)
-      const saved = rows.find((s) => s.meta === PROFILE_META)
-      const parsed = saved ? parseProfile(saved.content) : {}
+      const saved = profileForAgent(rows, agent)
+      const parsed = saved ? parseProfile(saved.content) : emptyProfile
       setProfileId(saved?.id || null)
-      setProfile({
-        ...emptyProfile,
-        name: parsed.name || me.business_name || '',
-        hours: parsed.hours || me.hours || '',
-        phone: parsed.phone || me.whatsapp || '',
-        email: parsed.email || me.email || '',
-        about: parsed.about || '',
-        address: parsed.address || '',
-        services: parsed.services || '',
-        website: parsed.website || '',
-      })
-      if (settings) setBot({ ...emptyBot, ...settings })
-      else setBot(emptyBot)
+      setProfile({ ...emptyProfile, ...parsed })
+      setBot(settings ? { ...emptyBot, ...settings } : emptyBot)
     } catch { /* keep current */ }
   }
 
-  useEffect(() => { load() }, [agent])
+  useEffect(() => {
+    setProfile(emptyProfile)
+    setProfileId(null)
+    setBot(emptyBot)
+    setUrl(''); setQ(''); setA(''); setNote('')
+    load()
+  }, [agent])
   useEffect(() => { setAgent(defaultChannel) }, [defaultChannel])
 
   const shown = sources.filter((s) => {
@@ -144,12 +150,9 @@ export function TrainingStudio({
     try {
       const content = formatProfile(profile)
       if (!content) { toast(t('tr_need_biz')); return }
-      await endpoints.saveProfile({
-        business_name: profile.name, whatsapp: profile.phone, hours: profile.hours, language: bot.language,
-      }).catch(() => {})
       const body = {
         type: 'qa', title: profile.name || t('tr_biz_title'), content,
-        meta: PROFILE_META, channel: 'all',
+        meta: PROFILE_META, channel: agent,
       }
       if (profileId) {
         try { await endpoints.updateKnowledge(profileId, body) }
@@ -169,8 +172,8 @@ export function TrainingStudio({
   async function saveRules() {
     setSaving('rules')
     try {
-      const channels = agent === 'all' ? ['whatsapp', 'instagram', 'website', 'voice'] : [agent]
-      for (const ch of channels) await endpoints.saveBot(ch, bot)
+      if (agent === 'all') { toast(t('tr_s2_pick')); return }
+      await endpoints.saveBot(agent, bot)
       await withLearn(async () => { toast() })
     } catch (e) { toast(e.message || t('save_failed')) }
     finally { setSaving('') }
@@ -257,12 +260,12 @@ export function TrainingStudio({
       <div className="train-layout" key={agent}>
         <div className="train-flow">
           <section className="train-card">
-            <div className="train-step"><span className="train-num">1</span><div className="train-step-copy"><b><T k="tr_s1" /></b><small><T k="tr_s1p" /></small></div></div>
+            <div className="train-step"><span className="train-num">1</span><div className="train-step-copy"><b><T k="tr_s1" /></b><small>{t('tr_s1p').replace('{agent}', agentName)}</small></div></div>
             <div className="train-grid">
               <div className="field"><label><T k="tr_biz" /></label>
                 <input value={profile.name} onChange={(e) => setP('name', e.target.value)} placeholder={t('f_biz')} /></div>
-              <div className="field"><label><T k="tr_phone" /></label>
-                <input value={profile.phone} onChange={(e) => setP('phone', e.target.value)} placeholder="+965 …" /></div>
+              <div className="field"><label>{t(PHONE_KEY[agent] || 'tr_phone')}</label>
+                <input value={profile.phone} onChange={(e) => setP('phone', e.target.value)} placeholder={agent === 'instagram' ? '@yourbrand' : '+965 …'} /></div>
               <div className="field"><label><T k="tr_email" /></label>
                 <input value={profile.email} onChange={(e) => setP('email', e.target.value)} placeholder="hello@business.com" /></div>
               <div className="field"><label><T k="se_hrs" /></label>
@@ -282,7 +285,11 @@ export function TrainingStudio({
           </section>
 
           <section className="train-card">
-            <div className="train-step"><span className="train-num">2</span><div className="train-step-copy"><b><T k="tr_s2" /></b><small>{t('tr_s2p').replace('{agent}', agentName)}</small></div></div>
+            <div className="train-step"><span className="train-num">2</span><div className="train-step-copy"><b><T k="tr_s2" /></b><small>{agent === 'all' ? t('tr_s2_pick') : t('tr_s2p').replace('{agent}', agentName)}</small></div></div>
+            {agent === 'all' ? (
+              <p className="hint"><T k="tr_s2_pick" /></p>
+            ) : (
+            <>
             {agent !== 'voice' && (
               <>
                 <div className="row"><div><b><T k="auto_re" /></b><p><T k="auto_rep" /></p></div>
@@ -329,6 +336,8 @@ export function TrainingStudio({
             <button className="btn btn-g" onClick={saveRules} disabled={saving === 'rules'}>
               <Icon name="bot" size={16} />{saving === 'rules' ? '…' : t('tr_save_rules')}
             </button>
+            </>
+            )}
           </section>
 
           <section className="train-card">
@@ -389,7 +398,7 @@ export function TrainingStudio({
             </div>
           ))}
           {shown.length === 0 && <div className="train-empty"><T k="kb_empty" /></div>}
-          <p className="hint" style={{ marginTop: 12 }}><T k="kb_adopt" /></p>
+          <p className="hint" style={{ marginTop: 12 }}>{t('kb_adopt').replace('{agent}', agentName)}</p>
         </aside>
       </div>
 

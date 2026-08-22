@@ -19,7 +19,10 @@ export function botChannel(channel) {
   return channel === 'website' ? 'web' : channel
 }
 
-const KB_SCOPE = `channel='all' or channel=$2 or ($2 in ('web','website') and channel in ('web','website'))`
+const KB_SCOPE = `(
+  (coalesce(meta,'') <> '__business_profile__' and (channel='all' or channel=$2 or ($2 in ('web','website') and channel in ('web','website'))))
+  or (meta='__business_profile__' and (channel=$2 or ($2 in ('web','website') and channel in ('web','website'))))
+)`
 
 const TONE = {
   friendly: 'friendly, warm and helpful',
