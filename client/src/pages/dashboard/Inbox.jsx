@@ -12,12 +12,19 @@ import { chIcon } from '../../data/demo'
 export function Inbox() {
   const { t } = useLang()
   const [convs, setConvs] = useState([])
-  const [activeId, setActiveId] = useState(null)
-  const [filter, setFilter] = useState('all')
+  const [activeId, setActiveId] = useState(() => {
+    try { return sessionStorage.getItem('sts_inbox_active') || null } catch { return null }
+  })
+  const [filter, setFilter] = useState(() => {
+    try { return sessionStorage.getItem('sts_inbox_filter') || 'all' } catch { return 'all' }
+  })
   const [search, setSearch] = useState('')
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(() => {
+    try { return sessionStorage.getItem('sts_inbox_draft') || '' } catch { return '' }
+  })
   const [loading, setLoading] = useState(true)
   const [mobileThread, setMobileThread] = useState(false)
+  const [memory, setMemory] = useState(null)
   const msgRef = useRef(null)
 
   const active = convs.find((c) => c.id === activeId)
@@ -41,7 +48,9 @@ export function Inbox() {
         })
         if (first && rows.length) {
           first = false
-          openConv(rows[0].id, rows)
+          const saved = (() => { try { return sessionStorage.getItem('sts_inbox_active') } catch { return null } })()
+          if (saved && rows.some((r) => r.id === saved)) openConv(saved, rows)
+          else openConv(rows[0].id, rows)
         }
       } catch { /* ignore */ }
       finally { if (alive) setLoading(false) }
@@ -56,8 +65,18 @@ export function Inbox() {
     if (msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight
   }, [activeId, active?.msgs?.length])
 
+  useEffect(() => {
+    if (!activeId) { setMemory(null); return }
+    let alive = true
+    apiGet(`/conversations/${activeId}/memory`)
+      .then((m) => { if (alive) setMemory(m) })
+      .catch(() => { if (alive) setMemory(null) })
+    return () => { alive = false }
+  }, [activeId])
+
   async function openConv(id, source = convs) {
     setActiveId(id)
+    try { sessionStorage.setItem('sts_inbox_active', id) } catch { /* ignore */ }
     setMobileThread(true)
     const conv = source.find((c) => c.id === id)
     // fetch messages if not loaded yet
@@ -89,6 +108,7 @@ export function Inbox() {
       ),
     )
     setDraft('')
+    try { sessionStorage.removeItem('sts_inbox_draft') } catch { /* ignore */ }
     apiPostAuth(`/conversations/${activeId}/messages`, { body: text, sender: 'human' }).catch(() => {})
   }
 
@@ -111,7 +131,7 @@ export function Inbox() {
         </div>
         <div className="filt">
           {filters.map((f) => (
-            <button key={f.f} className={filter === f.f ? 'on' : ''} onClick={() => setFilter(f.f)}>
+            <button key={f.f} className={filter === f.f ? 'on' : ''} onClick={() => { setFilter(f.f); try { sessionStorage.setItem('sts_inbox_filter', f.f) } catch { /* ignore */ } }}>
               {f.label}
             </button>
           ))}
@@ -183,7 +203,7 @@ export function Inbox() {
           <input
             placeholder={t('type_msg')}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => { setDraft(e.target.value); try { sessionStorage.setItem('sts_inbox_draft', e.target.value) } catch { /* ignore */ } }}
             onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
           />
           <button className="btn btn-g" onClick={sendMsg}>
@@ -205,6 +225,20 @@ export function Inbox() {
             <div className="kv"><span>{t('ix_since')}</span><span>{active.since}</span></div>
             <div className="kv"><span>{t('ix_orders')}</span><span>{active.orders}</span></div>
             <div className="kv"><span>{t('ix_mode')}</span><span>{active.mode === 'ai' ? t('mode_ai') : t('human')}</span></div>
+            <div className="kv" style={{ marginTop: 14, borderTop: '1px solid var(--bdr)', paddingTop: 12 }}>
+              <span style={{ fontWeight: 700 }}>{t('ix_memory')}</span>
+            </div>
+            {memory?.message_count > 0 && (
+              <>
+                <div className="kv"><span>{t('ix_interactions')}</span><span>{memory.message_count}</span></div>
+                {memory.last_seen && (
+                  <div className="kv"><span>{t('ix_last_seen')}</span><span>{new Date(memory.last_seen).toLocaleDateString()}</span></div>
+                )}
+              </>
+            )}
+            <p style={{ fontSize: 12, color: 'var(--mut)', lineHeight: 1.5, marginTop: 8 }}>
+              {memory?.summary || t('ix_no_memory')}
+            </p>
           </>
         )}
       </div>

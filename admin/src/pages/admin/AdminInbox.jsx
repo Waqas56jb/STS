@@ -20,13 +20,21 @@ const CH_ICON = {
  */
 export function AdminInbox({ businessId, defaultChannel, showBusiness = true, apiBase = '/admin', compact = false }) {
   const { t } = useAdminT()
+  const storageKey = (k) => `sts_admin_inbox_${businessId || 'all'}_${k}`
   const [convs, setConvs] = useState([])
-  const [activeId, setActiveId] = useState(null)
-  const [filter, setFilter] = useState(defaultChannel || 'all')
+  const [activeId, setActiveId] = useState(() => {
+    try { return sessionStorage.getItem(storageKey('active')) || null } catch { return null }
+  })
+  const [filter, setFilter] = useState(() => {
+    try { return sessionStorage.getItem(storageKey('filter')) || defaultChannel || 'all' } catch { return defaultChannel || 'all' }
+  })
   const [search, setSearch] = useState('')
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(() => {
+    try { return sessionStorage.getItem(storageKey('draft')) || '' } catch { return '' }
+  })
   const [loading, setLoading] = useState(true)
   const [mobileThread, setMobileThread] = useState(false)
+  const [memory, setMemory] = useState(null)
   const msgRef = useRef(null)
 
   const active = convs.find((c) => c.id === activeId)
@@ -63,7 +71,9 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
         })
         if (first && rows.length) {
           first = false
-          openConv(rows[0].id, rows)
+          const saved = (() => { try { return sessionStorage.getItem(storageKey('active')) } catch { return null } })()
+          if (saved && rows.some((r) => r.id === saved)) openConv(saved, rows)
+          else openConv(rows[0].id, rows)
         }
       } catch { /* ignore */ }
       finally { if (alive) setLoading(false) }
@@ -78,8 +88,18 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
     if (msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight
   }, [activeId, active?.msgs?.length])
 
+  useEffect(() => {
+    if (!activeId) { setMemory(null); return }
+    let alive = true
+    apiGet(`${apiBase}/conversations/${activeId}/memory`)
+      .then((m) => { if (alive) setMemory(m) })
+      .catch(() => { if (alive) setMemory(null) })
+    return () => { alive = false }
+  }, [activeId, apiBase])
+
   async function openConv(id, source = convs) {
     setActiveId(id)
+    try { sessionStorage.setItem(storageKey('active'), id) } catch { /* ignore */ }
     setMobileThread(true)
     const conv = source.find((c) => c.id === id)
     if (conv && !conv.msgs) {
@@ -110,6 +130,7 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
       ),
     )
     setDraft('')
+    try { sessionStorage.removeItem(storageKey('draft')) } catch { /* ignore */ }
     apiPostAuth(`${apiBase}/conversations/${activeId}/messages`, { body: text, sender: 'human' }).catch(() => {})
   }
 
@@ -131,7 +152,7 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
         {!defaultChannel && (
           <div className="filt">
             {channelFilters.map((f) => (
-              <button key={f.f} className={filter === f.f ? 'on' : ''} onClick={() => setFilter(f.f)}>
+              <button key={f.f} className={filter === f.f ? 'on' : ''} onClick={() => { setFilter(f.f); try { sessionStorage.setItem(storageKey('filter'), f.f) } catch { /* ignore */ } }}>
                 {f.label}
               </button>
             ))}
@@ -204,7 +225,7 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
           <input
             placeholder={t('ix_type')}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => { setDraft(e.target.value); try { sessionStorage.setItem(storageKey('draft'), e.target.value) } catch { /* ignore */ } }}
             onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
           />
           <button className="btn btn-g" onClick={sendMsg}>
@@ -227,6 +248,20 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
             <div className="kv"><span>{t('ix_channel')}</span><span style={{ textTransform: 'capitalize' }}>{active.ch}</span></div>
             <div className="kv"><span>{t('ix_since')}</span><span>{active.since}</span></div>
             <div className="kv"><span>{t('ix_mode')}</span><span>{active.mode === 'ai' ? t('mode_ai') : t('human')}</span></div>
+            <div className="kv" style={{ marginTop: 14, borderTop: '1px solid var(--bdr)', paddingTop: 12 }}>
+              <span style={{ fontWeight: 700 }}>{t('ix_memory')}</span>
+            </div>
+            {memory?.message_count > 0 && (
+              <>
+                <div className="kv"><span>{t('ix_interactions')}</span><span>{memory.message_count}</span></div>
+                {memory.last_seen && (
+                  <div className="kv"><span>{t('ix_last_seen')}</span><span>{new Date(memory.last_seen).toLocaleDateString()}</span></div>
+                )}
+              </>
+            )}
+            <p style={{ fontSize: 12, color: 'var(--mut)', lineHeight: 1.5, marginTop: 8 }}>
+              {memory?.summary || t('ix_no_memory')}
+            </p>
           </>
         )}
       </div>

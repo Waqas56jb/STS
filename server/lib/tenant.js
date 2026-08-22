@@ -57,9 +57,26 @@ export async function adminOwns(user, businessId) {
   return !!row
 }
 
-/** Customer tenants this admin created — never another admin's workspace. */
+/** All customer-tenant business ids (excludes admin personal workspaces). */
+export async function allCustomerBusinessIds() {
+  const rows = await many(
+    `select b.id from sts_businesses b
+      where b.id not in (select business_id from sts_users where role='admin' and business_id is not null)`,
+  )
+  return rows.map((r) => r.id)
+}
+
+/** Scope for admin charts, payments, and user lists — never empty when platform has customers. */
+export async function adminReportBusinessIds(user) {
+  const scoped = await customerBusinessIds(user)
+  if (scoped.length) return scoped
+  if (user?.role === 'admin') return allCustomerBusinessIds()
+  return []
+}
+/** Customer tenants this admin owns — platform operator sees all customer tenants. */
 export async function customerBusinessIds(user) {
   if (!user?.id) return []
+  if (isPlatformAdmin(user)) return allCustomerBusinessIds()
   const rows = await many(
     `select b.id from sts_businesses b
       where b.owner_user_id=$1

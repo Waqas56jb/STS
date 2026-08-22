@@ -71,12 +71,12 @@ export function MessagesChart({ data }) {
   return <Line data={chart} options={{ plugins: { legend: { display: false } }, maintainAspectRatio: false, scales: { y: gridY, x: gridXoff } }} />
 }
 
-/* ---- Analytics: revenue / ARPU trend (real monthly revenue) ---- */
+/* ---- Analytics: ARPU per month (revenue ÷ new paid customers) ---- */
 export function ArpuChart({ data }) {
   if (!hasRows(data)) return <ChartEmpty />
   const chart = {
     labels: data.map((r) => r.m),
-    datasets: [{ label: 'Revenue (KWD)', data: data.map((r) => r.total), borderColor: palette.teal, tension: 0.4, borderWidth: 2.5, fill: true, backgroundColor: 'rgba(15,190,143,.1)' }],
+    datasets: [{ label: 'ARPU (KWD)', data: data.map((r) => r.arpu ?? r.total ?? 0), borderColor: palette.teal, tension: 0.4, borderWidth: 2.5, fill: true, backgroundColor: 'rgba(15,190,143,.1)' }],
   }
   const options = { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: gridY, x: gridXoff } }
   return <Line data={chart} options={options} />

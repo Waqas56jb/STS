@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { Avatar } from '../components/Avatar'
 import { T, useLang } from '../i18n/LangContext'
@@ -57,10 +57,14 @@ function ViewRouter({ view, summary, usage }) {
   }
 }
 
+const VALID_VIEWS = new Set(Object.keys(TITLES))
+
 export default function Dashboard() {
   const { t, toggle, isAr } = useLang()
   const navigate = useNavigate()
-  const [view, setView] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawView = searchParams.get('view') || 'overview'
+  const view = VALID_VIEWS.has(rawView) ? rawView : 'overview'
   const [sideOpen, setSideOpen] = useState(false)
   const [summary, setSummary] = useState({ conv: 0, ai: 0, leads: 0, by_channel: [], week: [], conversations_total: 0, messages_total: 0 })
   const [usage, setUsage] = useState({})
@@ -68,15 +72,11 @@ export default function Dashboard() {
   const user = getUser()
   const bizName = user.business_name ? `${user.business_name} · ${user.plan || ''}` : ''
 
-  // Boot: verify the session is real, then load summary + usage.
-  useEffect(() => {
+  const loadDashboardData = () => {
     const token = localStorage.getItem('sts_token')
-    if (!token) { navigate('/'); return }
-    // real API only — a missing/invalid/expired token bounces to the landing
-    fetch(API + '/auth/me', { headers: { Authorization: 'Bearer ' + token } })
-      .then((r) => { if (!r.ok) throw new Error('unauthorized') })
-      .catch(() => { clearSession(); navigate('/') })
-    fetch(API + '/me/summary', { headers: { Authorization: 'Bearer ' + token } })
+    if (!token) return
+    const hdr = { Authorization: 'Bearer ' + token }
+    fetch(API + '/me/summary', { headers: hdr })
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
         if (!s) return
@@ -91,11 +91,30 @@ export default function Dashboard() {
         })
       })
       .catch(() => {})
-    fetch(API + '/me/usage', { headers: { Authorization: 'Bearer ' + token } })
+    fetch(API + '/me/usage', { headers: hdr })
       .then((r) => (r.ok ? r.json() : null))
       .then((u) => u && setUsage(u))
       .catch(() => {})
+  }
+
+  // Boot: verify the session is real, then load summary + usage.
+  useEffect(() => {
+    const token = localStorage.getItem('sts_token')
+    if (!token) { navigate('/'); return }
+    fetch(API + '/auth/me', { headers: { Authorization: 'Bearer ' + token } })
+      .then((r) => { if (!r.ok) throw new Error('unauthorized') })
+      .catch(() => { clearSession(); navigate('/') })
+    loadDashboardData()
   }, [])
+
+  // Refresh charts/stats every 30s and when switching to data views.
+  useEffect(() => {
+    if (view === 'overview' || view === 'analytics') {
+      loadDashboardData()
+      const id = setInterval(loadDashboardData, 30000)
+      return () => clearInterval(id)
+    }
+  }, [view])
 
   function logout() {
     clearSession()
@@ -103,7 +122,8 @@ export default function Dashboard() {
   }
 
   function go(v) {
-    setView(v)
+    if (v === 'overview') setSearchParams({}, { replace: true })
+    else setSearchParams({ view: v }, { replace: true })
     setSideOpen(false)
   }
 

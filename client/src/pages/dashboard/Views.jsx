@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { T, useLang } from '../../i18n/LangContext'
-import { WHATSAPP, apiGet, apiPut, getUser } from '../../lib/api'
+import { WHATSAPP, API, apiGet, apiPut, getUser } from '../../lib/api'
 import { Switch, useToast } from './ui'
 import { ConnectionForm, BotSettings } from './ConnectionForm'
 import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 import { DialCard, VoiceWebhookCard, CallHistory } from './VoiceAgent'
 import { WeekChart, ChannelChart, MonthChart, ResolutionChart, LeadsChart } from './Charts'
+import '../../lib/charts'
 
 const pct = (u) => (u && u.quota ? Math.min(100, Math.round((u.used / u.quota) * 100)) : 0)
 const num = (n) => Number(n || 0).toLocaleString('en')
@@ -141,7 +142,8 @@ export function WidgetView() {
 
   const bizName = profile?.business_name || getUser().business_name || ''
   const widgetKey = profile?.widget_key || ''
-  const embed = `<script src="https://widget.sts.app/w.js"\n data-business="${widgetKey}" defer></script>`
+  const widgetHost = API.replace(/\/api\/?$/, '')
+  const embed = `<script src="${widgetHost}/widget/w.js"\n data-business="${widgetKey}" defer></script>`
   function copy() {
     navigator.clipboard?.writeText(embed).catch(() => {})
     toast()
@@ -152,7 +154,7 @@ export function WidgetView() {
         <h3><Icon name="code-2" /><T k="wd_emb" /></h3>
         <p style={{ color: 'var(--mut)', marginBottom: 14 }}><T k="wd_p" /></p>
         <div className="code">
-          {'<script src="https://widget.sts.app/w.js"'}
+          {'<script src="' + widgetHost + '/widget/w.js"'}
           <br />
           {` data-business="${widgetKey}" defer></script>`}
           <button className="copy" onClick={copy}><T k="copy" /></button>
@@ -185,7 +187,12 @@ export { TrainingStudio as KnowledgeView } from './TrainingStudio'
 /* ===================== ANALYTICS ===================== */
 export function AnalyticsView() {
   const [a, setA] = useState(null)
-  useEffect(() => { apiGet('/me/analytics').then(setA).catch(() => {}) }, [])
+  const load = () => apiGet('/me/analytics').then(setA).catch(() => {})
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 30000)
+    return () => clearInterval(id)
+  }, [])
   return (
     <>
       <div className="grid g2" style={{ marginBottom: 18 }}>

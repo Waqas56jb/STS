@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { useLang } from '../i18n/LangContext'
 import { useAdminT } from '../i18n/admin'
@@ -38,8 +39,9 @@ function AdminInner({ onLogout }) {
   const { t, isAr } = useAdminT()
   const { toggle } = useLang()
   const toast = useToast()
-
-  const [view, setView] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawView = searchParams.get('view') || 'overview'
+  const view = TITLES[rawView] ? rawView : 'overview'
   const [sideOpen, setSideOpen] = useState(false)
   const [requests, setRequests] = useState([])
   const [users, setUsers] = useState([])
@@ -63,12 +65,17 @@ function AdminInner({ onLogout }) {
     if (sm) setSummary(sm)
     if (an) setAnalytics(an)
   }
-  useEffect(() => { reload() }, [])
+  useEffect(() => {
+    reload()
+    const id = setInterval(reload, 30000)
+    return () => clearInterval(id)
+  }, [view])
 
   const done = () => toast(t('toast_done'))
 
   function go(v) {
-    setView(v)
+    if (v === 'overview') setSearchParams({}, { replace: true })
+    else setSearchParams({ view: v }, { replace: true })
     setSideOpen(false)
   }
 
@@ -132,7 +139,7 @@ function AdminInner({ onLogout }) {
     switch (view) {
       case 'requests': return <Requests requests={requests} onApprove={approveReq} onReject={rejectReq} />
       case 'users': return <Users users={users} onToggle={toggleSuspend} onConnections={setConnBiz} onCredentials={setCredBiz} />
-      case 'payments': return <Payments />
+      case 'payments': return <Payments paymentStats={summary.payment_stats} />
       case 'invoices': return <Invoices />
       case 'plans': return <Plans />
       case 'analytics': return <Analytics analytics={analytics} />

@@ -57,6 +57,8 @@ export function formatMemoryForPrompt(memory, { customerName, channel } = {}) {
   const last = memory.last_seen ? new Date(memory.last_seen).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
   const away = daysSince(memory.last_seen)
   const returning = memory.message_count > 2 && away >= 1
+  const longAway = away >= 365
+  const mediumAway = away >= 30
   const facts = memory.facts && typeof memory.facts === 'object' ? memory.facts : {}
 
   const lines = [
@@ -69,7 +71,11 @@ export function formatMemoryForPrompt(memory, { customerName, channel } = {}) {
     facts.last_topic ? `Last discussed topic: ${facts.last_topic}.` : '',
     facts.open_questions?.length ? `Open questions: ${facts.open_questions.join('; ')}.` : '',
     returning
-      ? `RETURNING CUSTOMER: They have not messaged in ${Math.floor(away)} day(s). Briefly welcome them back (e.g. "Welcome back!" / "أهلاً بعودتك!") and reference what you remember if helpful. Pick up where you left off.`
+      ? longAway
+        ? `RETURNING CUSTOMER (long absence — ${Math.floor(away)} days, possibly over a year): Warmly welcome them back ("Welcome back!" / "أهلاً بعودتك!" / "Bataay hum yaha thay — ab batao kya help chahiye?"). Reference what you remember from past chats and ask how you can help today.`
+        : mediumAway
+          ? `RETURNING CUSTOMER: They have not messaged in ${Math.floor(away)} days. Welcome them back briefly and pick up where you left off using your memory.`
+          : `RETURNING CUSTOMER: Brief welcome back and continue naturally from prior context.`
       : 'If this is their first message, greet warmly and introduce yourself briefly.',
     'Never say you cannot remember or have no memory. You have the context above.',
   ]

@@ -8,6 +8,7 @@ import { CONNECTION_SPEC, CHANNELS, isConnected, resolveWhatsAppProvider } from 
 import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
 import { verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
 import { sendWhatsAppByProvider } from './lib/whatsappTransport.js'
+import { parseInboundInstagramMessages, sendInstagramText } from './lib/instagram.js'
 import {
   attachQrSocket, startQrSession, stopQrSession, logoutQrSession, resolveQrStatus,
   restoreQrSessions, setQrInboundHandler, qrEnabled, businessAllowsWhatsApp,
@@ -19,7 +20,7 @@ import {
 } from './lib/memory.js'
 import { ensureTrainingSchema } from './lib/ensureSchema.js'
 import {
-  ensureUserWorkspace, adminOwns, customerBusinessIds, allowedBusinessIds,
+  ensureUserWorkspace, adminOwns, customerBusinessIds, adminReportBusinessIds, allowedBusinessIds,
   emailTaken, idList, isPlatformAdmin,
 } from './lib/tenant.js'
 import multer from 'multer'
@@ -96,6 +97,49 @@ const period = () => {
 app.get('/api/health', wrap(async (_req, res) => {
   const r = await one('select now() as t')
   res.json({ ok: true, service: 'sts-api', db_time: r.t })
+}))
+
+/* ---- public website widget (any origin) ---- */
+app.use('/widget', express.static(path.join(__dirname, 'public/widget')))
+const widgetCors = cors({ origin: true })
+app.options('/api/widget/:key/*', widgetCors)
+app.get('/api/widget/:key/config', widgetCors, wrap(async (req, res) => {
+  const biz = await one(`select id, name from sts_businesses where widget_key=$1`, [req.params.key])
+  if (!biz) return res.status(404).json({ error: 'Not found' })
+  const bot = await one(`select greeting, widget_color, widget_position from sts_bot_settings where business_id=$1 and channel='web'`, [biz.id])
+  res.json({
+    business_name: biz.name,
+    greeting: bot?.greeting || 'Hi! How can we help you today?',
+    color: bot?.widget_color || '#0FBE8F',
+    position: bot?.widget_position || 'bottom_right',
+  })
+}))
+app.get('/api/widget/:key/history', widgetCors, wrap(async (req, res) => {
+  const visitorId = req.query.visitor_id
+  if (!visitorId) return res.json({ messages: [] })
+  const biz = await one(`select id from sts_businesses where widget_key=$1`, [req.params.key])
+  if (!biz) return res.status(404).json({ error: 'Not found' })
+  const conv = await one(`select id from sts_conversations where business_id=$1 and channel='web' and customer_handle=$2`, [biz.id, visitorId])
+  if (!conv) return res.json({ messages: [] })
+  const rows = await many(`select direction, body from sts_messages where conversation_id=$1 order by created_at`, [conv.id])
+  res.json({ messages: rows.map((r) => ({ role: r.direction === 'in' ? 'user' : 'assistant', text: r.body })) })
+}))
+app.post('/api/widget/:key/message', widgetCors, wrap(async (req, res) => {
+  const visitorId = req.body?.visitor_id
+  const text = String(req.body?.text || '').trim()
+  if (!visitorId || !text) return res.status(400).json({ error: 'visitor_id and text required' })
+  const biz = await one(`select id from sts_businesses where widget_key=$1`, [req.params.key])
+  if (!biz) return res.status(404).json({ error: 'Not found' })
+  const result = await handleInboundChat({
+    businessId: biz.id,
+    channel: 'web',
+    customerHandle: visitorId,
+    customerName: req.body?.name || 'Website visitor',
+    text,
+    messageId: null,
+    sendOutbound: null,
+  })
+  res.json({ reply: result.reply })
 }))
 
 /* ================================================================
@@ -294,6 +338,62 @@ setQrInboundHandler(async (businessId, msg) => {
 })
 
 /* ================================================================
+ * INSTAGRAM — Meta Messaging API webhook + AI agent (same memory engine)
+ * ============================================================== */
+
+async function isValidInstagramVerifyToken(token) {
+  if (!token) return false
+  if (process.env.INSTAGRAM_VERIFY_TOKEN && token === process.env.INSTAGRAM_VERIFY_TOKEN) return true
+  if (process.env.WHATSAPP_VERIFY_TOKEN && token === process.env.WHATSAPP_VERIFY_TOKEN) return true
+  const rows = await many(`select secrets_enc from sts_channel_configs where channel='instagram'`)
+  for (const r of rows) {
+    try { if (decryptJSON(r.secrets_enc)?.verify_token === token) return true } catch { /* skip */ }
+  }
+  return false
+}
+
+app.get('/api/webhooks/instagram', wrap(async (req, res) => {
+  const mode = req.query['hub.mode']
+  const token = req.query['hub.verify_token']
+  const challenge = req.query['hub.challenge']
+  if (mode === 'subscribe' && (await isValidInstagramVerifyToken(token))) {
+    return res.status(200).send(String(challenge))
+  }
+  res.sendStatus(403)
+}))
+
+app.post('/api/webhooks/instagram', wrap(async (req, res) => {
+  const inbound = parseInboundInstagramMessages(req.body)
+  if (!inbound.length) return res.sendStatus(200)
+
+  const byIg = {}
+  for (const m of inbound) (byIg[m.igAccountId] ||= []).push(m)
+
+  for (const [igId, msgs] of Object.entries(byIg)) {
+    const cfg = await one(`select business_id, secrets_enc from sts_channel_configs where channel='instagram' and ext_ref=$1`, [igId])
+    if (!cfg) continue
+    let creds
+    try { creds = decryptJSON(cfg.secrets_enc) } catch { continue }
+    if (creds.app_secret && !verifyMetaSignature(creds.app_secret, req.rawBody, req.get('x-hub-signature-256'))) {
+      console.warn('Instagram signature mismatch for ig_account_id', igId)
+      continue
+    }
+    for (const m of msgs) {
+      await handleInboundChat({
+        businessId: cfg.business_id,
+        channel: 'instagram',
+        customerHandle: m.from,
+        customerName: m.from,
+        text: m.text,
+        messageId: m.messageId,
+        sendOutbound: (reply) => sendInstagramText(creds, m.from, reply),
+      }).catch((e) => console.error('IG handle error:', e.message))
+    }
+  }
+  res.sendStatus(200)
+}))
+
+/* ================================================================
  * PUBLIC — access requests + plans
  * ============================================================== */
 app.post('/api/requests', wrap(async (req, res) => {
@@ -330,9 +430,12 @@ app.get('/api/me/summary', auth, wrap(async (req, res) => {
     `select channel, count(*)::int n from sts_conversations where business_id=$1 group by channel`, [b],
   )
   const week = await many(
-    `select to_char(created_at,'Dy') d, count(*)::int n
-       from sts_messages where business_id=$1 and created_at > now() - interval '7 days'
-      group by 1`, [b],
+    `select to_char(d, 'Dy') d, n from (
+       select date_trunc('day', created_at) d, count(*)::int n
+         from sts_messages where business_id=$1 and created_at > now() - interval '7 days'
+        group by 1 order by 1
+     ) sub`,
+    [b],
   )
   const totals = await one(
     `select (select count(*)::int from sts_conversations where business_id=$1) conv_total,
@@ -488,8 +591,32 @@ app.post('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
       console.error('[WhatsApp] human send failed:', e.message)
       return res.status(502).json({ error: 'Message saved but WhatsApp send failed', detail: e.message })
     }
+  } else if (conv.channel === 'instagram') {
+    const creds = await getChannelCreds(conv.business_id, 'instagram')
+    try {
+      await sendInstagramText(creds, conv.customer_handle, body)
+    } catch (e) {
+      console.error('[Instagram] human send failed:', e.message)
+      return res.status(502).json({ error: 'Message saved but Instagram send failed', detail: e.message })
+    }
   }
   res.json({ ok: true })
+}))
+
+app.get('/api/conversations/:id/memory', auth, wrap(async (req, res) => {
+  const conv = await one(`select id, business_id, channel, customer_handle, customer_name from sts_conversations where id=$1`, [req.params.id])
+  if (!conv || conv.business_id !== biz(req)) return res.status(404).json({ error: 'Not found' })
+  const key = customerKey(conv.customer_handle, conv.channel)
+  const memory = key ? await loadCustomerMemory(conv.business_id, key) : null
+  res.json({
+    summary: memory?.summary || null,
+    facts: memory?.facts || {},
+    message_count: memory?.message_count || 0,
+    first_seen: memory?.first_seen || null,
+    last_seen: memory?.last_seen || null,
+    last_channel: memory?.last_channel || null,
+    customer_name: memory?.customer_name || conv.customer_name,
+  })
 }))
 
 app.patch('/api/conversations/:id', auth, wrap(async (req, res) => {
@@ -669,12 +796,23 @@ app.get('/api/me/connections', auth, wrap(async (req, res) => {
  * ADMIN
  * ============================================================== */
 app.get('/api/admin/summary', auth, adminOnly, wrap(async (req, res) => {
-  const ids = idList(await customerBusinessIds(req.user))
-  const [mrr, paid, free, overdue] = await Promise.all([
+  const ids = idList(await adminReportBusinessIds(req.user))
+  const [mrr, paid, free, overdue, payStats, msgWeek] = await Promise.all([
     one(`select coalesce(sum(mrr),0)::numeric mrr from sts_businesses where id=any($1::uuid[]) and status='paid'`, [ids]),
     one(`select count(*)::int n from sts_businesses where id=any($1::uuid[]) and status='paid'`, [ids]),
     one(`select count(*)::int n from sts_businesses where id=any($1::uuid[]) and status in ('free','suspended')`, [ids]),
     one(`select count(*)::int n, coalesce(sum(amount_kwd),0)::numeric amt from sts_invoices where business_id=any($1::uuid[]) and status='overdue'`, [ids]),
+    one(
+      `select coalesce(sum(amount_kwd) filter (where status='paid' and created_at >= date_trunc('month', now())),0)::numeric collected_month,
+              coalesce(sum(amount_kwd) filter (where status='pending'),0)::numeric pending,
+              coalesce(sum(amount_kwd) filter (where status='failed'),0)::numeric failed
+         from sts_payments where business_id=any($1::uuid[])`,
+      [ids],
+    ),
+    one(
+      `select count(*)::int n from sts_messages where business_id=any($1::uuid[]) and created_at > now() - interval '7 days'`,
+      [ids],
+    ),
   ])
   res.json({
     mrr: Number(mrr.mrr),
@@ -682,6 +820,12 @@ app.get('/api/admin/summary', auth, adminOnly, wrap(async (req, res) => {
     free: free.n,
     overdue: overdue.n,
     overdue_amount: Number(overdue.amt),
+    payment_stats: {
+      collected_month: Number(payStats.collected_month),
+      pending: Number(payStats.pending),
+      failed: Number(payStats.failed),
+    },
+    messages_7d: msgWeek.n,
   })
 }))
 
@@ -726,7 +870,7 @@ app.post('/api/admin/requests/:id/reject', auth, adminOnly, wrap(async (req, res
 const chToShort = (channels) => (channels || []) // ['wa','ig','vc'] already
 
 app.get('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
-  const ids = idList(await customerBusinessIds(req.user))
+  const ids = idList(await adminReportBusinessIds(req.user))
   const rows = await many(
     `select b.id, b.name, b.plan_code, b.mrr, b.status, b.channels,
             p.name as plan_name,
@@ -814,7 +958,7 @@ app.delete('/api/admin/businesses/:id', auth, adminOnly, adminOwnsBiz, wrap(asyn
 }))
 
 app.get('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
-  const ids = idList(await customerBusinessIds(req.user))
+  const ids = idList(await adminReportBusinessIds(req.user))
   const rows = await many(
     `select p.reference, p.method, p.amount_kwd, p.status, p.created_at, b.name as biz
        from sts_payments p left join sts_businesses b on b.id=p.business_id
@@ -838,7 +982,7 @@ app.post('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
 }))
 
 app.get('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {
-  const ids = idList(await customerBusinessIds(req.user))
+  const ids = idList(await adminReportBusinessIds(req.user))
   const rows = await many(
     `select i.number, i.description, i.amount_kwd, i.status, coalesce(i.due_at,i.issued_at) d, b.name as biz
        from sts_invoices i left join sts_businesses b on b.id=i.business_id
@@ -863,7 +1007,7 @@ app.post('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {
 }))
 
 app.get('/api/admin/plans', auth, adminOnly, wrap(async (req, res) => {
-  const ids = idList(await customerBusinessIds(req.user))
+  const ids = idList(await adminReportBusinessIds(req.user))
   const rows = await many(
     `select p.*, (select count(*)::int from sts_businesses b where b.plan_code=p.code and b.id=any($1::uuid[])) subs
        from sts_plans p order by p.sort`,
@@ -875,14 +1019,15 @@ app.get('/api/admin/plans', auth, adminOnly, wrap(async (req, res) => {
 }))
 
 app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
-  const ids = idList(await customerBusinessIds(req.user))
+  const ids = idList(await adminReportBusinessIds(req.user))
   const [byPlan, top, daily, revenue, growth, usage, totals] = await Promise.all([
     many(`select p.category, coalesce(sum(b.mrr),0)::numeric mrr from sts_businesses b join sts_plans p on p.code=b.plan_code where b.id=any($1::uuid[]) group by p.category`, [ids]),
     many(
       `select b.name, b.mrr,
               (select count(*)::int from sts_messages m where m.business_id=b.id) msgs,
               coalesce((select sum(duration_sec)/60 from sts_call_logs c where c.business_id=b.id),0)::int voice_min
-         from sts_businesses b where b.id=any($1::uuid[]) order by b.mrr desc limit 6`,
+         from sts_businesses b where b.id=any($1::uuid[])
+         order by (select count(*) from sts_messages m where m.business_id=b.id) desc limit 6`,
       [ids],
     ),
     many(`select to_char(date_trunc('day', created_at),'Mon DD') d, count(*)::int n from sts_messages where business_id=any($1::uuid[]) and created_at > now() - interval '14 days' group by date_trunc('day', created_at) order by date_trunc('day', created_at)`, [ids]),
@@ -905,6 +1050,15 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
     growth_monthly: growth.map((r) => ({ m: r.m, paid: r.paid, free: r.free })),
     usage_by_channel: usage.map((r) => ({ channel: r.channel, n: r.n })),
     arpu: totals.paid ? Number((Number(totals.mrr) / totals.paid).toFixed(1)) : 0,
+    arpu_monthly: revenue.map((r) => {
+      const g = growth.find((x) => x.m === r.m)
+      const paidCount = Math.max(g?.paid || 0, 1)
+      return { m: r.m, arpu: Number((Number(r.total) / paidCount).toFixed(2)) }
+    }),
+    totals: {
+      messages: usage.reduce((s, r) => s + r.n, 0),
+      businesses: ids.filter((id) => id !== '00000000-0000-0000-0000-000000000000').length,
+    },
   })
 }))
 
@@ -1558,8 +1712,32 @@ app.post('/api/admin/conversations/:id/messages', auth, adminOnly, wrap(async (r
       console.error('[WhatsApp] admin human send failed:', e.message)
       return res.status(502).json({ error: 'Message saved but WhatsApp send failed', detail: e.message })
     }
+  } else if (conv.channel === 'instagram') {
+    const creds = await getChannelCreds(conv.business_id, 'instagram')
+    try {
+      await sendInstagramText(creds, conv.customer_handle, body)
+    } catch (e) {
+      console.error('[Instagram] admin human send failed:', e.message)
+      return res.status(502).json({ error: 'Message saved but Instagram send failed', detail: e.message })
+    }
   }
   res.json({ ok: true })
+}))
+
+app.get('/api/admin/conversations/:id/memory', auth, adminOnly, wrap(async (req, res) => {
+  const conv = await adminGetConversation(req, req.params.id)
+  if (!conv) return res.status(404).json({ error: 'Not found' })
+  const key = customerKey(conv.customer_handle, conv.channel)
+  const memory = key ? await loadCustomerMemory(conv.business_id, key) : null
+  res.json({
+    summary: memory?.summary || null,
+    facts: memory?.facts || {},
+    message_count: memory?.message_count || 0,
+    first_seen: memory?.first_seen || null,
+    last_seen: memory?.last_seen || null,
+    last_channel: memory?.last_channel || null,
+    customer_name: memory?.customer_name || conv.customer_name,
+  })
 }))
 
 app.patch('/api/admin/conversations/:id', auth, adminOnly, wrap(async (req, res) => {
