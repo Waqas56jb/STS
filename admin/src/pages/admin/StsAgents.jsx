@@ -6,6 +6,7 @@ import { useToast } from '../ui'
 import { VoiceAgent } from './VoiceAgent'
 import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
+import { AgentHistoryPanel } from './AgentActivity'
 
 const TABS = [
   { v: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
@@ -15,20 +16,36 @@ const TABS = [
 ]
 
 export function StsAgents() {
+  const { t } = useAdminT()
   const [tab, setTab] = useState('whatsapp')
+  const [section, setSection] = useState('setup') // setup | history
   const [ctx, setCtx] = useState(null)
   useEffect(() => { apiGet('/admin/agent/context').then(setCtx).catch(() => {}) }, [])
 
   return (
     <>
-      <div className="conn-tabs" style={{ marginBottom: 18 }}>
+      <div className="conn-tabs" style={{ marginBottom: 14 }}>
         {TABS.map((tabItem) => (
-          <button key={tabItem.v} className={`conn-tab ${tab === tabItem.v ? 'on' : ''}`} onClick={() => setTab(tabItem.v)}>
+          <button key={tabItem.v} className={`conn-tab ${tab === tabItem.v ? 'on' : ''}`} onClick={() => { setTab(tabItem.v); setSection('setup') }}>
             <Icon name={tabItem.icon} size={15} />{tabItem.label}
           </button>
         ))}
       </div>
-      {tab === 'voice' ? <VoiceAgent businessId={ctx?.business_id} />
+
+      <div className="conn-tabs" style={{ marginBottom: 18 }}>
+        <button className={`conn-tab ${section === 'setup' ? 'on' : ''}`} onClick={() => setSection('setup')}>
+          <Icon name="settings" size={15} />{t('act_setup')}
+        </button>
+        <button className={`conn-tab ${section === 'history' ? 'on' : ''}`} onClick={() => setSection('history')}>
+          <Icon name="history" size={15} />{t('act_history')}
+        </button>
+      </div>
+
+      {section === 'history' ? (
+        tab === 'voice' ? <AgentHistoryPanel channel="voice" />
+          : tab === 'website' ? <AgentHistoryPanel channel="website" />
+          : <AgentHistoryPanel channel={tab} />
+      ) : tab === 'voice' ? <VoiceAgent businessId={ctx?.business_id} />
         : tab === 'website' ? (ctx?.business_id ? <TrainingStudio api={adminTrainingApi(ctx.business_id)} defaultChannel="website" /> : null)
         : <ChannelAgent key={tab} channel={tab} ctx={ctx} />}
     </>

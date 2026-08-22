@@ -5,6 +5,7 @@ import { apiGet, apiPut } from '../../lib/api'
 import { useToast } from '../ui'
 import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
+import { AgentHistoryPanel } from './AgentActivity'
 
 /**
  * Per-business channel connections + chatbot training, in one modal.
@@ -19,7 +20,7 @@ import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
 export function ConnectionModal({ business, onClose }) {
   const { t } = useAdminT()
   const toast = useToast()
-  const [mode, setMode] = useState('conn') // 'conn' | 'train'
+  const [mode, setMode] = useState('conn') // 'conn' | 'train' | 'history'
   const [spec, setSpec] = useState(null)
   const [conns, setConns] = useState([])
   const [channel, setChannel] = useState('whatsapp')
@@ -79,11 +80,11 @@ export function ConnectionModal({ business, onClose }) {
 
   return (
     <div className="modal open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal-card${mode === 'train' ? ' train-wide' : ''}`} style={mode === 'train' ? { maxWidth: 1080 } : { maxWidth: 560 }}>
+      <div className={`modal-card${mode === 'train' ? ' train-wide' : ''}`} style={mode === 'train' ? { maxWidth: 1080 } : mode === 'history' ? { maxWidth: 1100 } : { maxWidth: 560 }}>
         <button className="modal-x" onClick={onClose}><Icon name="x" /></button>
         <h3 style={{ marginBottom: 4 }}>{business.biz}</h3>
         <p style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 14 }}>
-          {mode === 'conn' ? t('modal_conn_keys') : t('modal_train')}
+          {mode === 'conn' ? t('modal_conn_keys') : mode === 'train' ? t('modal_train') : t('act_history_sub')}
         </p>
 
         {/* mode toggle */}
@@ -93,6 +94,9 @@ export function ConnectionModal({ business, onClose }) {
           </button>
           <button className={`conn-tab ${mode === 'train' ? 'on' : ''}`} onClick={() => setMode('train')}>
             <Icon name="brain" size={15} />{t('train_tab')}
+          </button>
+          <button className={`conn-tab ${mode === 'history' ? 'on' : ''}`} onClick={() => setMode('history')}>
+            <Icon name="history" size={15} />{t('act_history')}
           </button>
         </div>
 
@@ -178,6 +182,10 @@ export function ConnectionModal({ business, onClose }) {
 
         {mode === 'train' && business?.id && (
           <TrainingStudio compact api={adminTrainingApi(business.id)} />
+        )}
+
+        {mode === 'history' && business?.id && (
+          <AgentHistoryPanel businessId={business.id} showBusiness={false} compact />
         )}
       </div>
     </div>

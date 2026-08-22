@@ -1401,9 +1401,164 @@ app.put('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) 
   res.json(await upsertBotSettings(adminWorkspace(req), req.params.channel, req.body || {}))
 }))
 
-/* ================================================================
- * START (HTTP + WebSocket for Twilio Media Streams)
- * ============================================================== */
+/* ---------- admin: conversation + call history (all owned businesses) ---------- */
+function adminConversationShape(row) {
+  return { ...conversationShape(row), business_id: row.business_id, business_name: row.business_name || '' }
+}
+function adminCallShape(row, full = false) {
+  return { ...callShape(row, full), business_id: row.business_id, business_name: row.business_name || '' }
+}
+async function adminBizScope(user, businessId) {
+  if (businessId) {
+    const ok = await adminOwns(user, businessId)
+    if (!ok) return null
+    return [businessId]
+  }
+  return idList(await allowedBusinessIds(user))
+}
+async function adminGetConversation(req, convId) {
+  const conv = await one(
+    `select c.*, b.name as business_name from sts_conversations c join sts_businesses b on b.id=c.business_id where c.id=$1`,
+    [convId],
+  )
+  if (!conv || !(await adminOwns(req.user, conv.business_id))) return null
+  return conv
+}
+async function adminConversationList(user, { businessId, channel } = {}) {
+  const ids = await adminBizScope(user, businessId)
+  if (!ids) return []
+  const params = [ids]
+  let sql = `select c.*, b.name as business_name from sts_conversations c join sts_businesses b on b.id=c.business_id where c.business_id = any($1::uuid[])`
+  if (channel) { params.push(channel); sql += ` and c.channel=$${params.length}` }
+  sql += ` order by c.last_message_at desc nulls last limit 200`
+  return (await many(sql, params)).map(adminConversationShape)
+}
+async function adminCallRows(user, { businessId } = {}) {
+  const ids = await adminBizScope(user, businessId)
+  if (!ids) return []
+  return many(
+    `select cl.*, b.name as business_name from sts_call_logs cl join sts_businesses b on b.id=cl.business_id
+     where cl.business_id = any($1::uuid[]) order by cl.created_at desc limit 200`,
+    [ids],
+  )
+}
+
+app.get('/api/admin/activity/summary', auth, adminOnly, wrap(async (req, res) => {
+  const ids = await adminBizScope(req.user, req.query.business_id || null)
+  if (!ids) return res.json({ channels: {}, totals: { conversations: 0, unread: 0, calls: 0 }, businesses: [] })
+  const [byCh, unread, calls, bizRows] = await Promise.all([
+    many(
+      `select channel, count(*)::int n from sts_conversations where business_id = any($1::uuid[]) group by channel`,
+      [ids],
+    ),
+    one(`select coalesce(sum(unread),0)::int n from sts_conversations where business_id = any($1::uuid[])`, [ids]),
+    one(`select count(*)::int n from sts_call_logs where business_id = any($1::uuid[])`, [ids]),
+    many(
+      `select b.id, b.name,
+              (select count(*)::int from sts_conversations c where c.business_id=b.id) convs,
+              (select count(*)::int from sts_call_logs cl where cl.business_id=b.id) calls
+       from sts_businesses b where b.id = any($1::uuid[]) order by b.name`,
+      [ids],
+    ),
+  ])
+  const channels = {}
+  for (const r of byCh) channels[r.channel] = { conversations: r.n, unread: 0 }
+  const unreadByCh = await many(
+    `select channel, coalesce(sum(unread),0)::int n from sts_conversations where business_id = any($1::uuid[]) group by channel`,
+    [ids],
+  )
+  for (const r of unreadByCh) {
+    if (!channels[r.channel]) channels[r.channel] = { conversations: 0, unread: 0 }
+    channels[r.channel].unread = r.n
+  }
+  channels.voice = { ...(channels.voice || { conversations: 0, unread: 0 }), calls: calls.n }
+  res.json({
+    channels,
+    totals: {
+      conversations: byCh.reduce((s, r) => s + r.n, 0),
+      unread: unread.n,
+      calls: calls.n,
+    },
+    businesses: bizRows,
+  })
+}))
+
+app.get('/api/admin/conversations', auth, adminOnly, wrap(async (req, res) => {
+  const rows = await adminConversationList(req.user, { businessId: req.query.business_id, channel: req.query.channel })
+  if (rows === null) return res.status(404).json({ error: 'Not found' })
+  res.json(rows)
+}))
+
+app.get('/api/admin/conversations/:id/messages', auth, adminOnly, wrap(async (req, res) => {
+  const conv = await adminGetConversation(req, req.params.id)
+  if (!conv) return res.status(404).json({ error: 'Not found' })
+  const rows = await many(`select direction, sender, body, created_at from sts_messages where conversation_id=$1 order by created_at`, [req.params.id])
+  await pool.query(`update sts_conversations set unread=0 where id=$1`, [req.params.id])
+  res.json(rows.map((r) => messageShape(r, conv.customer_name)))
+}))
+
+app.post('/api/admin/conversations/:id/messages', auth, adminOnly, wrap(async (req, res) => {
+  const conv = await adminGetConversation(req, req.params.id)
+  if (!conv) return res.status(404).json({ error: 'Not found' })
+  const body = String(req.body?.body || '').trim()
+  if (!body) return res.status(400).json({ error: 'Empty message' })
+  await tx(async (c) => {
+    await c.query(`insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out',$3,$4)`,
+      [conv.id, conv.business_id, req.body?.sender || 'human', body])
+    await c.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, body])
+  })
+  if (conv.channel === 'whatsapp') {
+    const creds = await getChannelCreds(conv.business_id, 'whatsapp')
+    try {
+      await sendWhatsAppByProvider({
+        provider: resolveWhatsAppProvider(creds),
+        businessId: conv.business_id,
+        to: conv.customer_handle,
+        text: body,
+        creds,
+      })
+    } catch (e) {
+      console.error('[WhatsApp] admin human send failed:', e.message)
+      return res.status(502).json({ error: 'Message saved but WhatsApp send failed', detail: e.message })
+    }
+  }
+  res.json({ ok: true })
+}))
+
+app.patch('/api/admin/conversations/:id', auth, adminOnly, wrap(async (req, res) => {
+  const conv = await adminGetConversation(req, req.params.id)
+  if (!conv) return res.status(404).json({ error: 'Not found' })
+  const sets = [], params = [req.params.id]
+  if (req.body.mode) { params.push(req.body.mode); sets.push(`mode=$${params.length}`) }
+  if (req.body.unread != null) { params.push(req.body.unread); sets.push(`unread=$${params.length}`) }
+  if (sets.length) await pool.query(`update sts_conversations set ${sets.join(', ')} where id=$1`, params)
+  res.json({ ok: true })
+}))
+
+app.get('/api/admin/calls', auth, adminOnly, wrap(async (req, res) => {
+  const rows = await adminCallRows(req.user, { businessId: req.query.business_id })
+  if (rows === null) return res.status(404).json({ error: 'Not found' })
+  res.json(rows.map((r) => adminCallShape(r, false)))
+}))
+
+app.get('/api/admin/calls/:id', auth, adminOnly, wrap(async (req, res) => {
+  const row = await one(
+    `select cl.*, b.name as business_name from sts_call_logs cl join sts_businesses b on b.id=cl.business_id where cl.id=$1`,
+    [req.params.id],
+  )
+  if (!row || !(await adminOwns(req.user, row.business_id))) return res.status(404).json({ error: 'Not found' })
+  res.json(adminCallShape(row, true))
+}))
+
+app.get('/api/admin/businesses/:id/conversations', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
+  res.json(await adminConversationList(req.user, { businessId: req.params.id, channel: req.query.channel }))
+}))
+
+app.get('/api/admin/businesses/:id/calls', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
+  const rows = await adminCallRows(req.user, { businessId: req.params.id })
+  res.json(rows.map((r) => adminCallShape(r, false)))
+}))
+
 const PORT = process.env.PORT || 4000
 const server = http.createServer(app)
 
