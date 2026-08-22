@@ -116,44 +116,6 @@ function VoiceConnection() {
   )
 }
 
-/* ---------------- training (greeting / tone / language) ---------------- */
-function VoiceTraining() {
-  const { isAr } = useAdminT()
-  const toast = useToast()
-  const [b, setB] = useState({ greeting: '', tone: 'friendly', language: 'auto' })
-  useEffect(() => { apiGet('/admin/voice/bot').then((r) => r && setB((s) => ({ ...s, ...r }))).catch(() => {}) }, [])
-  const set = (k, v) => setB((s) => ({ ...s, [k]: v }))
-  async function save() {
-    try { await apiPut('/admin/voice/bot', b); toast(isAr ? 'تم الحفظ ✓' : 'Saved ✓') } catch { toast(isAr ? 'فشل الحفظ' : 'Save failed') }
-  }
-  return (
-    <div className="card">
-      <h3><Icon name="bot" />{isAr ? 'تدريب الوكيل الصوتي' : 'Voice agent training'}</h3>
-      <div className="field"><label>{isAr ? 'الجملة الافتتاحية / هدف المكالمة' : 'Opening line / call purpose'}</label>
-        <textarea rows="2" value={b.greeting || ''} onChange={(e) => set('greeting', e.target.value)} />
-      </div>
-      <div className="field"><label>{isAr ? 'الأسلوب' : 'Tone'}</label>
-        <select value={b.tone || 'friendly'} onChange={(e) => set('tone', e.target.value)}>
-          <option value="friendly">{isAr ? 'ودود' : 'Friendly'}</option>
-          <option value="professional">{isAr ? 'احترافي' : 'Professional'}</option>
-          <option value="playful">{isAr ? 'مرح' : 'Playful'}</option>
-        </select>
-      </div>
-      <div className="field"><label>{isAr ? 'لغة الوكيل' : 'Agent language'}</label>
-        <select value={b.language || 'auto'} onChange={(e) => set('language', e.target.value)}>
-          <option value="auto">{isAr ? 'اسأل المتصل (متعدد اللغات)' : 'Ask the caller (multilingual)'}</option>
-          <option value="en">English</option><option value="ar">العربية</option>
-          <option value="hi">Hindi</option><option value="ur">Urdu</option><option value="fr">Français</option>
-        </select>
-        <div className="hint" style={{ marginTop: 6 }}>
-          {isAr ? 'الافتراضي: يبدأ بالإنجليزية ويسأل ثم يكمل بلغة المتصل. اختر لغة لتثبيتها.' : 'Default: starts English, asks & adapts. Pick a language to lock the agent to it.'}
-        </div>
-      </div>
-      <button className="btn btn-g" onClick={save}><Icon name="save" size={16} />{isAr ? 'حفظ' : 'Save'}</button>
-    </div>
-  )
-}
-
 /* ---------------- dial ---------------- */
 function DialCard({ onCalled }) {
   const { isAr } = useAdminT()
@@ -210,70 +172,6 @@ function WebhookCard({ ctx }) {
   )
 }
 
-/* ---------------- knowledge base ---------------- */
-const KB_ICON = { file: 'file-text', url: 'globe', qa: 'message-square' }
-function VoiceKnowledge() {
-  const { isAr } = useAdminT()
-  const toast = useToast()
-  const [kb, setKb] = useState([])
-  const [url, setUrl] = useState('')
-  const [q, setQ] = useState('')
-  const [a, setA] = useState('')
-  const [scope, setScope] = useState('voice') // 'voice' (this agent) or 'all' (shared)
-  const [editingKb, setEditingKb] = useState(null)
-  const load = () => apiGet('/admin/voice/knowledge').then(setKb).catch(() => {})
-  useEffect(() => { load() }, [])
-  async function importUrl() { if (!url.trim()) return; await apiPostAuth('/admin/voice/knowledge', { type: 'url', title: url.trim(), source_url: url.trim(), meta: 'URL', channel: scope }).catch(() => {}); setUrl(''); toast(isAr ? 'تمت الإضافة ✓' : 'Added ✓'); load() }
-  async function addQa() { if (!q.trim()) return; await apiPostAuth('/admin/voice/knowledge', { type: 'qa', title: q.trim(), content: a.trim(), meta: 'Q&A', channel: scope }).catch(() => {}); setQ(''); setA(''); toast(isAr ? 'تم التدريب ✓' : 'Trained ✓'); load() }
-  async function remove(id) { await apiDelete(`/admin/voice/knowledge/${id}`).catch(() => {}); load() }
-  return (
-    <div className="grid g2">
-      <div className="card">
-        <h3><Icon name="brain" />{isAr ? 'تدريب المعرفة' : 'Knowledge training'}</h3>
-        <div className="field"><label>{isAr ? 'تدريب لِـ' : 'Train for'}</label>
-          <select value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="voice">{isAr ? 'الوكيل الصوتي فقط' : 'Voice agent only'}</option>
-            <option value="all">{isAr ? 'كل الوكلاء (مشترك)' : 'All agents (shared)'}</option>
-          </select>
-        </div>
-        <div className="field"><label>{isAr ? 'استيراد من رابط' : 'Import from URL'}</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input placeholder="https://example.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
-            <button className="btn btn-p" onClick={importUrl}>{isAr ? 'استيراد' : 'Import'}</button>
-          </div>
-        </div>
-        <div className="field"><label>{isAr ? 'سؤال وجواب' : 'Add Q&A'}</label>
-          <input placeholder={isAr ? 'السؤال…' : 'Question…'} value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
-          <textarea rows="2" placeholder={isAr ? 'الجواب…' : 'Answer…'} value={a} onChange={(e) => setA(e.target.value)} />
-        </div>
-        <button className="btn btn-g" onClick={addQa}><Icon name="brain" size={16} />{isAr ? 'تدريب الوكيل' : 'Train the agent'}</button>
-      </div>
-      <div className="card">
-        <h3><Icon name="library" />{isAr ? 'مصادر المعرفة' : 'Knowledge sources'} <span className="badge b-info" style={{ marginInlineStart: 'auto' }}>{kb.length}</span></h3>
-        {kb.map((s) => (
-          <div className="kb-item" key={s.id}>
-            <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
-            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setEditingKb(s)}><b>{s.title}</b><span>{s.meta || ''}</span></div>
-            <span className={`badge ${(s.channel || 'voice') === 'all' ? 'b-info' : 'b-ok'}`}>
-              {(s.channel || 'voice') === 'all' ? (isAr ? 'الكل' : 'ALL') : (isAr ? 'صوت' : 'VOICE')}
-            </span>
-            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 8 }} onClick={() => setEditingKb(s)}><Icon name="pencil" size={13} /></button>
-            <button className="btn btn-o" style={{ padding: '5px 9px', marginInlineStart: 6 }} onClick={() => remove(s.id)}><Icon name="x" size={13} /></button>
-          </div>
-        ))}
-        {kb.length === 0 && <div style={{ color: 'var(--mut)', fontSize: 13, padding: 12 }}>{isAr ? 'لا توجد مصادر بعد.' : 'No knowledge yet.'}</div>}
-      </div>
-      {editingKb && (
-        <KbEditModal
-          entry={editingKb}
-          putBase="/admin/voice/knowledge"
-          channels={[{ v: 'voice', label: isAr ? 'الوكيل الصوتي فقط' : 'Voice agent only' }, { v: 'all', label: isAr ? 'كل الوكلاء (مشترك)' : 'All agents (shared)' }]}
-          onClose={() => setEditingKb(null)}
-          onSaved={load}
-        />
-      )}
-    </div>
-  )
 }
 
 /* ---------------- call history + transcripts ---------------- */

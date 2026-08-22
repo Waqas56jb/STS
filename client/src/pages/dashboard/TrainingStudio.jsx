@@ -88,9 +88,7 @@ export function TrainingStudio({
       const [kb, me, settings] = await Promise.all([
         endpoints.listKnowledge(),
         endpoints.loadProfile().catch(() => ({})),
-        agent === 'all'
-          ? Promise.resolve(null)
-          : endpoints.loadBot(agent).catch(() => null),
+        endpoints.loadBot(agent === 'all' ? 'whatsapp' : agent).catch(() => null),
       ])
       const rows = Array.isArray(kb) ? kb : []
       setSources(rows)
