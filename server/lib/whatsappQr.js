@@ -30,6 +30,8 @@ const sessions = new Map()
 const sockets = new Set()
 let inboundHandler = null
 const lastStart = new Map()
+const starting = new Set()
+const reconnecting = new Set()
 
 export function setQrInboundHandler(fn) {
   inboundHandler = fn
@@ -117,7 +119,7 @@ async function loadBaileys() {
     makeWASocket,
     useMultiFileAuthState: root.useMultiFileAuthState,
     DisconnectReason: root.DisconnectReason || {},
-    fetchLatestBaileysVersion: root.fetchLatestBaileysVersion,
+    Browsers: root.Browsers,
   }
 }
 
@@ -162,104 +164,117 @@ export async function sendQrText(businessId, to, text) {
 export async function startQrSession(businessId, { restore = false } = {}) {
   if (!QR_ENABLED) throw new Error('WhatsApp QR is disabled')
   const existing = sessions.get(businessId)
-  if (existing?.status === 'connected') return getQrStatus(businessId)
-  if (existing?.status === 'qr' || existing?.status === 'starting' || existing?.status === 'connecting') {
+  if (existing?.status === 'connected' && existing.sock) return getQrStatus(businessId)
+  if (!restore && (existing?.status === 'qr' || existing?.status === 'starting' || existing?.status === 'connecting')) {
     return getQrStatus(businessId)
   }
+  if (starting.has(businessId)) return getQrStatus(businessId)
 
   const now = Date.now()
-  if (!restore && lastStart.get(businessId) && now - lastStart.get(businessId) < 3000) {
+  if (!restore && lastStart.get(businessId) && now - lastStart.get(businessId) < 2000) {
     return getQrStatus(businessId)
   }
   lastStart.set(businessId, now)
+  starting.add(businessId)
 
-  if (existing?.sock) {
-    try { existing.sock.end(undefined) } catch { /* ignore */ }
-    sessions.delete(businessId)
-  }
-
-  setState(businessId, { status: 'starting', qr: null, error: null })
-  log(`business=${businessId} status=starting`)
-
-  const dir = sessionDir(businessId)
-  fs.mkdirSync(dir, { recursive: true })
-
-  const baileys = await loadBaileys()
-  const { state, saveCreds } = await baileys.useMultiFileAuthState(dir)
-  let version
   try {
-    const fetched = await baileys.fetchLatestBaileysVersion?.()
-    version = fetched?.version
-  } catch { /* use library default */ }
+    if (existing?.sock) {
+      try { existing.sock.ev?.removeAllListeners?.() } catch { /* ignore */ }
+    }
 
-  const sock = baileys.makeWASocket({
-    auth: state,
-    version,
-    logger: pino({ level: 'silent' }),
-    browser: ['STS', 'Chrome', '1.0'],
-    syncFullHistory: false,
-    markOnlineOnConnect: false,
-  })
+    setState(businessId, { status: restore ? 'reconnecting' : 'starting', qr: restore ? null : existing?.qr || null, error: null })
+    log(`business=${businessId} status=${restore ? 'reconnecting' : 'starting'}`)
 
-  setState(businessId, { sock, status: 'starting' })
-  sock.ev.on('creds.update', saveCreds)
+    const dir = sessionDir(businessId)
+    fs.mkdirSync(dir, { recursive: true })
 
-  sock.ev.on('connection.update', async (update) => {
-    try {
-      const { connection, lastDisconnect, qr } = update
-      if (qr) {
-        const dataUrl = await QRCode.toDataURL(qr, { width: 280, margin: 1 })
-        setState(businessId, { status: 'qr', qr: dataUrl, error: null })
-        log(`business=${businessId} status=qr`)
+    const baileys = await loadBaileys()
+    const { state, saveCreds } = await baileys.useMultiFileAuthState(dir)
+    const browser = baileys.Browsers?.macOS?.('Chrome') || baileys.Browsers?.ubuntu?.('Chrome')
+
+    const sock = baileys.makeWASocket({
+      auth: state,
+      logger: pino({ level: 'silent' }),
+      browser,
+      syncFullHistory: false,
+      markOnlineOnConnect: false,
+      connectTimeoutMs: 60_000,
+      keepAliveIntervalMs: 25_000,
+      getMessage: async () => undefined,
+    })
+
+    setState(businessId, { sock, status: restore && state.creds?.registered ? 'connecting' : 'starting' })
+    sock.ev.on('creds.update', saveCreds)
+
+    sock.ev.on('connection.update', async (update) => {
+      try {
+        const { connection, lastDisconnect, qr } = update
+        if (qr) {
+          const dataUrl = await QRCode.toDataURL(qr, { width: 280, margin: 1 })
+          setState(businessId, { status: 'qr', qr: dataUrl, error: null })
+          log(`business=${businessId} status=qr`)
+        }
+        if (connection === 'connecting') {
+          const keepQr = sessions.get(businessId)?.qr
+          setState(businessId, { status: keepQr ? 'qr' : 'connecting', error: null })
+        }
+        if (connection === 'open') {
+          reconnecting.delete(businessId)
+          const display = displayFromJid(sock.user?.id)
+          setState(businessId, {
+            status: 'connected',
+            qr: null,
+            displayNumber: display,
+            error: null,
+            connectedAt: new Date().toISOString(),
+          })
+          await persistMeta(businessId, { status: 'connected', display_number: display }).catch((e) => log('persist failed', e.message))
+          log(`business=${businessId} status=connected number=${display}`)
+        }
+        if (connection === 'close') {
+          const err = lastDisconnect?.error
+          const code = err?.output?.statusCode ?? err?.statusCode
+          const loggedOut = code === baileys.DisconnectReason.loggedOut || code === 401 || code === 403 || code === 440
+          // 515 = restartRequired — normal right after a successful QR scan
+          log(`business=${businessId} closed code=${code ?? 'unknown'}`)
+          if (loggedOut) {
+            reconnecting.delete(businessId)
+            setState(businessId, { status: 'logged_out', qr: null, sock: null, error: 'Logged out — scan a new QR' })
+            await persistMeta(businessId, { status: 'logged_out' }).catch(() => {})
+            wipeSessionDir(businessId)
+            log(`business=${businessId} status=logged_out`)
+            return
+          }
+          if (reconnecting.has(businessId)) return
+          reconnecting.add(businessId)
+          setState(businessId, { status: 'reconnecting', qr: null, error: null, sock: null })
+          setTimeout(() => {
+            startQrSession(businessId, { restore: true })
+              .catch((e) => log('reconnect failed', e.message))
+              .finally(() => reconnecting.delete(businessId))
+          }, code === 515 ? 800 : 2000)
+        }
+      } catch (e) {
+        log(`business=${businessId} connection.update error`, e.message)
+        setState(businessId, { status: 'error', error: e.message })
       }
-      if (connection === 'connecting') {
-        setState(businessId, { status: sessions.get(businessId)?.qr ? 'qr' : 'connecting', error: null })
-      }
-      if (connection === 'open') {
-        const display = displayFromJid(sock.user?.id)
-        setState(businessId, {
-          status: 'connected',
-          qr: null,
-          displayNumber: display,
-          error: null,
-          connectedAt: new Date().toISOString(),
-        })
-        await persistMeta(businessId, { status: 'connected', display_number: display }).catch((e) => log('persist failed', e.message))
-        log(`business=${businessId} status=connected`)
-      }
-      if (connection === 'close') {
-        const code = lastDisconnect?.error?.output?.statusCode
-        const loggedOut = code === baileys.DisconnectReason.loggedOut || code === 401
-        if (loggedOut) {
-          setState(businessId, { status: 'logged_out', qr: null, sock: null, error: 'Logged out — scan a new QR' })
-          await persistMeta(businessId, { status: 'logged_out' }).catch(() => {})
-          wipeSessionDir(businessId)
-          log(`business=${businessId} status=logged_out`)
-        } else {
-          setState(businessId, { status: 'reconnecting', qr: null, error: null })
-          log(`business=${businessId} status=reconnecting`)
-          sessions.delete(businessId)
-          setTimeout(() => startQrSession(businessId, { restore: true }).catch((e) => log('reconnect failed', e.message)), 2500)
+    })
+
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify' && type !== 'append') return
+      for (const m of messages || []) {
+        try {
+          await handleBaileysMessage(businessId, m)
+        } catch (e) {
+          log(`business=${businessId} inbound error`, e.message)
         }
       }
-    } catch (e) {
-      log(`business=${businessId} connection.update error`, e.message)
-      setState(businessId, { status: 'error', error: e.message })
-    }
-  })
+    })
 
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify' && type !== 'append') return
-    for (const m of messages || []) {
-      try {
-        await handleBaileysMessage(businessId, m)
-      } catch (e) {
-        log(`business=${businessId} inbound error`, e.message)
-      }
-    }
-  })
-
-  return getQrStatus(businessId)
+    return getQrStatus(businessId)
+  } finally {
+    starting.delete(businessId)
+  }
 }
 
 async function handleBaileysMessage(businessId, m) {
