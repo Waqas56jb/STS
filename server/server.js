@@ -21,6 +21,7 @@ import {
 import {
   fillRevenueMonthly, fillGrowthMonthly, fillMessagesDaily, fillPlanCategories,
 } from './lib/adminAnalytics.js'
+import { ensureTrainingSchema } from './lib/ensureSchema.js'
 import {
   parseSiteConfig, DEFAULT_WHATSAPP, DEFAULT_EMAIL, waLink, pricingPlanUpdates,
 } from './lib/siteConfig.js'
