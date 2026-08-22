@@ -13,6 +13,10 @@ import {
   restoreQrSessions, setQrInboundHandler, qrEnabled, businessAllowsWhatsApp,
 } from './lib/whatsappQr.js'
 import { generateReply } from './lib/ai.js'
+import {
+  customerKey, loadCustomerMemory, loadConversationHistory,
+  touchCustomerMemory, refreshCustomerMemory,
+} from './lib/memory.js'
 import { ensureTrainingSchema } from './lib/ensureSchema.js'
 import {
   ensureUserWorkspace, adminOwns, customerBusinessIds, allowedBusinessIds,
@@ -22,7 +26,11 @@ import multer from 'multer'
 import { extractDocumentText, isSupportedTrainingFile } from './lib/extractText.js'
 import { twimlStream, twilioCreateCall, attachVoiceBridge } from './lib/voice.js'
 import http from 'node:http'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 // keep the raw body so Meta webhook signatures (X-Hub-Signature-256) can be verified
@@ -185,70 +193,99 @@ app.post('/api/webhooks/whatsapp', wrap(async (req, res) => {
   res.sendStatus(200)
 }))
 
-/** Store an inbound WhatsApp message and, if auto-reply is on, answer with the AI agent. */
-async function handleInboundWhatsApp(businessId, creds, msg) {
-  const biz = await one(`select name from sts_businesses where id=$1`, [businessId])
+/** Store inbound message + AI reply with long-term customer memory (all chat channels). */
+async function handleInboundChat({ businessId, channel, customerHandle, customerName, text, messageId, sendOutbound }) {
+  const bizRow = await one(`select name from sts_businesses where id=$1`, [businessId])
+  const memKey = customerKey(customerHandle, channel)
+  const sinceLabel = new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
 
-  // upsert the conversation (one thread per customer number)
   const conv = await one(
-    `insert into sts_conversations (business_id, channel, customer_handle, customer_name, last_message_preview, last_message_at, unread)
-     values ($1,'whatsapp',$2,$3,$4, now(), 1)
+    `insert into sts_conversations (business_id, channel, customer_handle, customer_name, customer_since, last_message_preview, last_message_at, unread)
+     values ($1,$2,$3,$4,$5,$6, now(), 1)
      on conflict (business_id, channel, customer_handle) do update set
-       customer_name = coalesce(sts_conversations.customer_name, excluded.customer_name),
+       customer_name = coalesce(excluded.customer_name, sts_conversations.customer_name),
+       customer_since = coalesce(sts_conversations.customer_since, excluded.customer_since),
        last_message_preview = excluded.last_message_preview, last_message_at = now(),
        unread = sts_conversations.unread + 1
      returning id, mode`,
-    [businessId, msg.from, msg.name, msg.text],
+    [businessId, channel === 'website' ? 'web' : channel, customerHandle, customerName, sinceLabel, text],
   )
 
-  // prior turns for context (before inserting the new one)
-  const prior = await many(
-    `select direction, body from sts_messages where conversation_id=$1 order by created_at desc limit 8`,
-    [conv.id],
-  )
+  if (messageId) {
+    const ins = await one(
+      `insert into sts_messages (conversation_id, business_id, direction, sender, body, provider_msg_id)
+       values ($1,$2,'in','customer',$3,$4)
+       on conflict (provider_msg_id) do nothing returning id`,
+      [conv.id, businessId, text, messageId],
+    )
+    if (!ins) return { conversationId: conv.id, reply: null, duplicate: true }
+  } else {
+    await pool.query(
+      `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'in','customer',$3)`,
+      [conv.id, businessId, text],
+    )
+  }
 
-  // store the inbound message; skip if we've already processed this Meta id (retry)
-  const ins = await one(
-    `insert into sts_messages (conversation_id, business_id, direction, sender, body, provider_msg_id)
-     values ($1,$2,'in','customer',$3,$4)
-     on conflict (provider_msg_id) do nothing
-     returning id`,
-    [conv.id, businessId, msg.text, msg.messageId],
-  )
-  if (!ins) return // duplicate delivery → already handled
+  await touchCustomerMemory(businessId, memKey, { customerName, channel })
+  const memory = await loadCustomerMemory(businessId, memKey)
 
   await pool.query(
     `insert into sts_leads (business_id, name, contact, channel, status)
-     select $1,$2,$3,'whatsapp','new'
-     where not exists (select 1 from sts_leads where business_id=$1 and contact=$3 and channel='whatsapp')`,
-    [businessId, msg.name || msg.from, msg.from],
+     select $1,$2,$3,$4,'new'
+     where not exists (select 1 from sts_leads where business_id=$1 and contact=$3 and channel=$4)`,
+    [businessId, customerName || customerHandle, customerHandle, channel === 'website' ? 'web' : channel],
   )
 
-  // respect auto-reply + human-takeover
-  const bot = await one(`select auto_reply from sts_bot_settings where business_id=$1 and channel='whatsapp'`, [businessId])
+  const botCh = channel === 'website' ? 'web' : channel
+  const bot = await one(`select auto_reply from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, botCh])
   const autoReply = bot ? bot.auto_reply : true
-  if (!autoReply || conv.mode === 'human') return
-
-  const history = prior.reverse().map((h) => ({ role: h.direction === 'in' ? 'user' : 'assistant', content: h.body }))
-  const reply = await generateReply({ businessId, businessName: biz?.name, channel: 'whatsapp', userText: msg.text, history })
-  if (!reply) return
-
-  try {
-    await sendWhatsAppByProvider({
-      provider: resolveWhatsAppProvider(creds),
-      businessId,
-      to: msg.jid || msg.from,
-      text: reply,
-      creds,
-    })
-  } catch (e) {
-    console.error('[WhatsApp] AI send failed:', e.message)
+  if (!autoReply || conv.mode === 'human') {
+    return { conversationId: conv.id, reply: null }
   }
+
+  const history = await loadConversationHistory(conv.id)
+  const reply = await generateReply({
+    businessId,
+    businessName: bizRow?.name,
+    channel: channel === 'web' ? 'website' : channel,
+    userText: text,
+    history,
+    memory,
+    customerName: customerName || memory?.customer_name,
+  })
+  if (!reply) return { conversationId: conv.id, reply: null }
+
+  if (sendOutbound) {
+    try { await sendOutbound(reply) } catch (e) { console.error(`[${channel}] AI send failed:`, e.message) }
+  }
+
   await pool.query(
     `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out','ai',$3)`,
     [conv.id, businessId, reply],
   )
   await pool.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, reply])
+
+  refreshCustomerMemory(businessId, memKey, conv.id).catch(() => {})
+  return { conversationId: conv.id, reply }
+}
+
+/** WhatsApp wrapper — same memory engine as web/instagram. */
+async function handleInboundWhatsApp(businessId, creds, msg) {
+  await handleInboundChat({
+    businessId,
+    channel: 'whatsapp',
+    customerHandle: msg.from,
+    customerName: msg.name,
+    text: msg.text,
+    messageId: msg.messageId,
+    sendOutbound: (reply) => sendWhatsAppByProvider({
+      provider: resolveWhatsAppProvider(creds),
+      businessId,
+      to: msg.jid || msg.from,
+      text: reply,
+      creds,
+    }),
+  })
 }
 
 setQrInboundHandler(async (businessId, msg) => {

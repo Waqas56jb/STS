@@ -3,6 +3,7 @@ import { pool, one, many } from '../db.js'
 import { resolveOpenAIKey } from './ai.js'
 import { decryptJSON } from './crypto.js'
 import { formatKnowledgeForPrompt } from './kbPrompt.js'
+import { loadCustomerMemory, formatMemoryForPrompt, mergeVoiceIntoMemory } from './memory.js'
 
 /**
  * Voice agent = Twilio phone line ⇄ OpenAI Realtime API.
@@ -109,11 +110,12 @@ export async function twilioCreateCall({ accountSid, authToken, from, to, twimlU
 }
 
 /* ---------------- system prompt (KB + tone + language) ---------------- */
-async function buildInstructions(businessId, direction) {
-  const [biz, bot, kb] = await Promise.all([
+async function buildInstructions(businessId, direction, callerPhone = null) {
+  const [biz, bot, kb, memory] = await Promise.all([
     one(`select name from sts_businesses where id=$1`, [businessId]),
     one(`select greeting, tone, language, rules from sts_bot_settings where business_id=$1 and channel='voice'`, [businessId]),
     many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='voice' or (channel='all' and coalesce(meta,'') <> '__business_profile__')) order by created_at desc limit 80`, [businessId]),
+    callerPhone ? loadCustomerMemory(businessId, callerPhone.replace(/\s/g, '')) : Promise.resolve(null),
   ])
   const name = biz?.name || 'this business'
   const tone = TONE[bot?.tone] || TONE.friendly
@@ -128,6 +130,7 @@ async function buildInstructions(businessId, direction) {
   }
 
   const kbText = formatKnowledgeForPrompt(kb)
+  const memoryBlock = memory ? formatMemoryForPrompt(memory, { channel: 'voice' }) : ''
 
   const purpose = direction === 'outbound'
     ? `This is an OUTBOUND call you are placing on behalf of the business. When the person answers, greet them, introduce yourself as ${name}'s assistant, and carry out the purpose below.`
@@ -140,6 +143,7 @@ async function buildInstructions(businessId, direction) {
     purpose,
     bot?.greeting ? `Opening line / purpose: ${bot.greeting}` : '',
     bot?.rules ? `AGENT RULES (always follow):\n${bot.rules}` : '',
+    memoryBlock,
     `Answer using ONLY the business knowledge below. If something isn't covered, say you'll have a team member follow up — never invent prices, availability, or policies.`,
     '',
     'BUSINESS KNOWLEDGE:',
@@ -194,7 +198,7 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
   async function openOpenAI() {
     const apiKey = await resolveOpenAIKey()
     if (!apiKey || !businessId) { twilioWs.close(); return }
-    const instructions = await buildInstructions(businessId, direction)
+      const instructions = await buildInstructions(businessId, direction, direction === 'inbound' ? fromNum : toNum)
     openaiWs = new WebSocket(REALTIME_URL, {
       headers: { Authorization: `Bearer ${apiKey}`, 'OpenAI-Beta': 'realtime=v1' },
     })
@@ -280,6 +284,10 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
          callSid, text, JSON.stringify(turns), summary, durationSec, startedAt.toISOString()],
       )
     } catch (e) { console.error('save call log:', e.message) }
+    const phone = direction === 'inbound' ? fromNum : toNum
+    if (summary && phone) {
+      mergeVoiceIntoMemory(businessId, phone, { summary }).catch(() => {})
+    }
   }
 }
 

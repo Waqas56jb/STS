@@ -17,5 +17,20 @@ export async function ensureTrainingSchema() {
       where meta='__business_profile__' and coalesce(channel,'all')='all'`,
   )
   await backfillTenantIsolation()
-  console.log('✓ training schema + tenant isolation ready')
+  await pool.query(`
+    create table if not exists sts_customer_memory (
+      id            uuid primary key default gen_random_uuid(),
+      business_id   uuid not null references sts_businesses(id) on delete cascade,
+      customer_key  text not null,
+      customer_name text,
+      summary       text,
+      facts         jsonb default '{}'::jsonb,
+      message_count int default 0,
+      first_seen    timestamptz default now(),
+      last_seen     timestamptz default now(),
+      last_channel  text,
+      unique (business_id, customer_key)
+    )`)
+  await pool.query(`create index if not exists idx_customer_memory_biz on sts_customer_memory(business_id, customer_key)`)
+  console.log('✓ training schema + tenant isolation + customer memory ready')
 }
