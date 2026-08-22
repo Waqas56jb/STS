@@ -7,7 +7,7 @@ import { T, useLang } from '../i18n/LangContext'
 import { useSiteConfig } from '../context/SiteConfigContext'
 import { useScrolled } from '../hooks/useScrolled'
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
-import { apiPost, saveSession, ADMIN_APP_URL } from '../lib/api'
+import { apiPost, saveSession, ADMIN_APP_URL, redirectWithSession } from '../lib/api'
 import { priceTabs } from '../data/pricing'
 
 // transparent brand logo from public/ (base-aware so it works at any deploy path)
@@ -281,25 +281,23 @@ function LoginModal({ open, onClose }) {
   const navigate = useNavigate()
   const [err, setErr] = useState('')
   const [showPw, setShowPw] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   async function onSubmit(e) {
     e.preventDefault()
     setErr('')
+    setBusy(true)
     const email = e.target.lgEmail.value
     const password = e.target.lgPass.value
     try {
       const { token, user } = await apiPost('/auth/login', { email, password }, { retries: 2 })
       saveSession({ token, user })
-      // route by role — admin panel is a separate app served at /admin/,
-      // the client dashboard is a route in this app (matches the original
-      // admin/admin.html vs client/client.html redirect).
       if (user.role === 'admin') {
-        window.location.href = ADMIN_APP_URL
-      } else {
-        navigate('/dashboard')
+        redirectWithSession(ADMIN_APP_URL, { token })
+        return
       }
+      navigate('/dashboard')
     } catch (ex) {
-      // Real API only — no demo fallback. Show the server's error.
       if (ex.status === 403) {
         setErr(isAr ? t('err_suspended') : (ex.message || t('err_suspended')))
       } else if (ex.status === 401) {
@@ -307,6 +305,7 @@ function LoginModal({ open, onClose }) {
       } else {
         setErr(t('err_server'))
       }
+      setBusy(false)
     }
   }
 
@@ -332,7 +331,14 @@ function LoginModal({ open, onClose }) {
               </button>
             </div>
           </div>
-          <button className="btn btn-dark" style={{ width: '100%', justifyContent: 'center' }} type="submit">{t('lg_btn')}</button>
+          <button
+            className="btn btn-dark"
+            style={{ width: '100%', justifyContent: 'center' }}
+            type="submit"
+            disabled={busy}
+          >
+            {busy ? t('lg_busy') : t('lg_btn')}
+          </button>
           <div className="ok-note" style={{ display: err ? 'block' : 'none', background: '#FEE2E2', color: '#991B1B' }}>{err}</div>
         </form>
         <p style={{ marginTop: 18, marginBottom: 0, fontSize: 13 }}>

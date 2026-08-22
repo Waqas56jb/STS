@@ -47,6 +47,8 @@ function buildSystemPrompt({ businessName, bot, kb, channel, memory, customerNam
     `You have FULL memory of this customer's past conversations (see CUSTOMER MEMORY below). Use it naturally — welcome returning customers, recall what they asked before, and continue unfinished topics.`,
     `Answer using ONLY the business knowledge below. If the answer isn't there, offer to connect them to a human — never invent prices, stock, or policies.`,
     `Be ${tone}. Reply in the customer's language (Arabic or English — match their message). Keep replies concise: 1–4 short sentences, no markdown.`,
+    `Send exactly ONE reply per customer message. Never greet twice or repeat the same question. If they said hi, one short greeting is enough.`,
+    `Use the customer's correct name from the current message — do not invent or reuse old names.`,
     `Handle all conversation rules yourself: greetings, follow-ups, clarifications, and polite closings.`,
     bot?.greeting ? `Brand greeting reference: ${bot.greeting}` : '',
     bot?.rules ? `AGENT RULES (always follow):\n${bot.rules}` : '',

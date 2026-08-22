@@ -77,7 +77,7 @@ function VoiceConnection() {
 
   return (
     <div className="card">
-      <h3><Icon name="plug-zap" />{t('twilio_conn')}</h3>
+      <h3><Icon name="plug-zap" />{t('vonage_conn')}</h3>
       <div className="conn-status">
         <span className={`badge ${current?.connected ? 'b-ok' : 'b-warn'}`}>
           {current?.connected ? t('connected') : t('not_connected')}
@@ -151,18 +151,24 @@ function WebhookCard({ ctx }) {
   const copy = (v) => { navigator.clipboard?.writeText(v || '').catch(() => {}); toast(t('toast_copied')) }
   return (
     <div className="card">
-      <h3><Icon name="webhook" />{t('webhook_twilio_title')}</h3>
-      <p style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 12 }}>{t('webhook_twilio_hint')}</p>
-      <div className="field"><label>{t('webhook_incoming')}</label>
+      <h3><Icon name="webhook" />{t('webhook_vonage_title')}</h3>
+      <p style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 12 }}>{t('webhook_vonage_hint')}</p>
+      <div className="field"><label>{t('webhook_answer')}</label>
         <div style={{ display: 'flex', gap: 8 }}>
           <input readOnly value={ctx?.incoming_url || ''} />
           <button className="btn btn-o" onClick={() => copy(ctx?.incoming_url)}><Icon name="copy" size={14} /></button>
         </div>
       </div>
-      <div className="field"><label>{t('webhook_status')}</label>
+      <div className="field"><label>{t('webhook_event')}</label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input readOnly value={ctx?.status_url || ''} />
-          <button className="btn btn-o" onClick={() => copy(ctx?.status_url)}><Icon name="copy" size={14} /></button>
+          <input readOnly value={ctx?.event_url || ''} />
+          <button className="btn btn-o" onClick={() => copy(ctx?.event_url)}><Icon name="copy" size={14} /></button>
+        </div>
+      </div>
+      <div className="field"><label>{t('webhook_ws')}</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input readOnly value={ctx?.websocket_url || ''} />
+          <button className="btn btn-o" onClick={() => copy(ctx?.websocket_url)}><Icon name="copy" size={14} /></button>
         </div>
       </div>
     </div>

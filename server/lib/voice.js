@@ -268,26 +268,7 @@ export function attachVoiceBridge(twilioWs, defaultPublicWsUrl) {
     try { if (openaiWs?.readyState === WebSocket.OPEN) openaiWs.close() } catch { /* ignore */ }
     try { if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close() } catch { /* ignore */ }
     if (!businessId || !callSid) return
-    const durationSec = Math.round((Date.now() - startedAt.getTime()) / 1000)
-    const text = turns.map((t) => `${t.role === 'user' ? 'Caller' : 'Agent'}: ${t.text}`).join('\n')
-    const summary = await summarize(text).catch(() => null)
-    try {
-      await pool.query(
-        `insert into sts_call_logs (business_id, caller, direction, from_number, to_number, status,
-             provider_call_sid, transcript, transcript_json, summary, duration_sec, started_at, ended_at)
-         values ($1,$2,$3,$4,$5,'completed',$6,$7,$8,$9,$10,$11, now())
-         on conflict (provider_call_sid) do update set
-             transcript=excluded.transcript, transcript_json=excluded.transcript_json,
-             summary=excluded.summary, duration_sec=excluded.duration_sec,
-             status='completed', ended_at=now()`,
-        [businessId, direction === 'inbound' ? fromNum : toNum, direction, fromNum, toNum,
-         callSid, text, JSON.stringify(turns), summary, durationSec, startedAt.toISOString()],
-      )
-    } catch (e) { console.error('save call log:', e.message) }
-    const phone = direction === 'inbound' ? fromNum : toNum
-    if (summary && phone) {
-      mergeVoiceIntoMemory(businessId, phone, { summary }).catch(() => {})
-    }
+    await persistCallLog({ businessId, callSid, direction, fromNum, toNum, turns, startedAt })
   }
 }
 
@@ -310,4 +291,165 @@ async function summarize(transcript) {
   })
   const d = await res.json().catch(() => ({}))
   return res.ok ? d?.choices?.[0]?.message?.content?.trim() || null : null
+}
+
+/** Persist call transcript + summary (shared by Twilio + Vonage bridges). */
+export async function persistCallLog({
+  businessId, callSid, direction, fromNum, toNum, turns, startedAt,
+}) {
+  if (!businessId || !callSid) return
+  const durationSec = Math.round((Date.now() - startedAt.getTime()) / 1000)
+  const text = turns.map((t) => `${t.role === 'user' ? 'Caller' : 'Agent'}: ${t.text}`).join('\n')
+  const summary = await summarize(text).catch(() => null)
+  try {
+    await pool.query(
+      `insert into sts_call_logs (business_id, caller, direction, from_number, to_number, status,
+           provider_call_sid, transcript, transcript_json, summary, duration_sec, started_at, ended_at)
+       values ($1,$2,$3,$4,$5,'completed',$6,$7,$8,$9,$10,$11, now())
+       on conflict (provider_call_sid) do update set
+           transcript=excluded.transcript, transcript_json=excluded.transcript_json,
+           summary=excluded.summary, duration_sec=excluded.duration_sec,
+           status='completed', ended_at=now()`,
+      [businessId, direction === 'inbound' ? fromNum : toNum, direction, fromNum, toNum,
+        callSid, text, JSON.stringify(turns), summary, durationSec, startedAt.toISOString()],
+    )
+  } catch (e) { console.error('save call log:', e.message) }
+  const phone = direction === 'inbound' ? fromNum : toNum
+  if (summary && phone) mergeVoiceIntoMemory(businessId, phone, { summary }).catch(() => {})
+}
+
+/**
+ * Vonage Voice websocket bridge (PCM16 16kHz ⇄ OpenAI Realtime).
+ * Meta is passed via NCCO connect headers on the websocket upgrade request.
+ */
+export function attachVonageVoiceBridge(vonageWs, meta = {}) {
+  let businessId = meta.businessId || null
+  let direction = meta.direction || 'inbound'
+  let fromNum = meta.from || null
+  let toNum = meta.to || null
+  let callUuid = meta.callUuid || null
+  let openaiWs = null
+  let closed = false
+  let vc = {}
+  let useEleven = false
+  let elevenAbort = null
+  const turns = []
+  const startedAt = new Date()
+
+  const sendAudio = (b64) => {
+    if (vonageWs.readyState !== WebSocket.OPEN) return
+    vonageWs.send(JSON.stringify({
+      event: 'audio',
+      audio: { contentType: 'audio/l16;rate=16000', payload: b64 },
+    }))
+  }
+  const stopEleven = () => { try { elevenAbort?.abort() } catch { /* ignore */ } elevenAbort = null }
+
+  vonageWs.on('message', async (raw) => {
+    let msg
+    try { msg = JSON.parse(raw.toString()) } catch { return }
+    if (msg.event === 'websocket:connected') {
+      vc = businessId ? await getVoiceCreds(businessId) : {}
+      useEleven = vc.voice_provider === 'elevenlabs' && !!vc.elevenlabs_api_key
+      await openOpenAI()
+    } else if (msg.event === 'audio' && msg.audio?.payload) {
+      if (openaiWs?.readyState === WebSocket.OPEN) {
+        openaiWs.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: msg.audio.payload }))
+      }
+    }
+  })
+  vonageWs.on('close', finish)
+  vonageWs.on('error', finish)
+
+  async function openOpenAI() {
+    const apiKey = await resolveOpenAIKey()
+    if (!apiKey || !businessId) { vonageWs.close(); return }
+    const instructions = await buildInstructions(businessId, direction, direction === 'inbound' ? fromNum : toNum)
+    openaiWs = new WebSocket(REALTIME_URL, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'OpenAI-Beta': 'realtime=v1' },
+    })
+    openaiWs.on('open', () => {
+      openaiWs.send(JSON.stringify({
+        type: 'session.update',
+        session: {
+          modalities: useEleven ? ['text'] : ['audio', 'text'],
+          instructions,
+          voice: VOICE,
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
+          input_audio_transcription: { model: 'whisper-1' },
+          turn_detection: { type: 'server_vad', threshold: 0.5, silence_duration_ms: 500, prefix_padding_ms: 300 },
+        },
+      }))
+      openaiWs.send(JSON.stringify({ type: 'response.create' }))
+    })
+    openaiWs.on('message', (data) => {
+      let ev
+      try { ev = JSON.parse(data.toString()) } catch { return }
+      handleOpenAI(ev)
+    })
+    openaiWs.on('error', (e) => console.error('OpenAI RT (Vonage) error:', e.message))
+  }
+
+  function handleOpenAI(ev) {
+    switch (ev.type) {
+      case 'response.audio.delta':
+        if (!useEleven && ev.delta) sendAudio(ev.delta)
+        break
+      case 'response.audio_transcript.done':
+        if (!useEleven && ev.transcript?.trim()) turns.push({ role: 'agent', text: ev.transcript.trim(), at: new Date().toISOString() })
+        break
+      case 'response.text.done':
+        if (useEleven && ev.text?.trim()) {
+          turns.push({ role: 'agent', text: ev.text.trim(), at: new Date().toISOString() })
+          stopEleven()
+          elevenAbort = speakWithElevenVonage({ apiKey: vc.elevenlabs_api_key, voiceId: vc.elevenlabs_voice_id, text: ev.text.trim(), sendAudio })
+        }
+        break
+      case 'input_audio_buffer.speech_started':
+        stopEleven()
+        if (openaiWs?.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: 'response.cancel' }))
+        break
+      case 'conversation.item.input_audio_transcription.completed':
+        if (ev.transcript?.trim()) turns.push({ role: 'user', text: ev.transcript.trim(), at: new Date().toISOString() })
+        break
+      case 'error':
+        console.error('OpenAI RT (Vonage) event error:', JSON.stringify(ev.error || ev))
+        break
+    }
+  }
+
+  async function finish() {
+    if (closed) return
+    closed = true
+    stopEleven()
+    try { if (openaiWs?.readyState === WebSocket.OPEN) openaiWs.close() } catch { /* ignore */ }
+    await persistCallLog({ businessId, callSid: callUuid, direction, fromNum, toNum, turns, startedAt })
+  }
+}
+
+/** ElevenLabs TTS → Vonage PCM websocket (μ-law stream converted to base64 chunks). */
+function speakWithElevenVonage({ apiKey, voiceId, text, sendAudio }) {
+  const controller = new AbortController()
+  ;(async () => {
+    try {
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId || ELEVEN_DEFAULT_VOICE}/stream?output_format=pcm_16000&optimize_streaming_latency=3`,
+        {
+          method: 'POST',
+          headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, model_id: ELEVEN_MODEL, voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
+          signal: controller.signal,
+        },
+      )
+      if (!res.ok || !res.body) return
+      const reader = res.body.getReader()
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value?.length) sendAudio(Buffer.from(value).toString('base64'))
+      }
+    } catch (e) { if (e.name !== 'AbortError') console.error('ElevenLabs Vonage stream:', e.message) }
+  })()
+  return controller
 }

@@ -29,6 +29,7 @@ const TABS = [
   { id: 'brand', icon: 'palette', label: 'se_tab_brand' },
   { id: 'content', icon: 'type', label: 'se_tab_content' },
   { id: 'pricing', icon: 'tags', label: 'se_tab_pricing' },
+  { id: 'voice', icon: 'phone-call', label: 'se_tab_voice' },
 ]
 
 function emptyConfig() {
@@ -90,16 +91,23 @@ export function Settings() {
   const [priceTab, setPriceTab] = useState('p-wa')
   const [saving, setSaving] = useState(false)
   const [contact, setContact] = useState({ support_whatsapp: '+965 510 22389', support_email: 'sts@shgardiauto.com', currency: 'KWD' })
+  const [vonage, setVonage] = useState({ vonage_api_key: '', vonage_api_secret: '', vonage_signature_secret: '', vonage_application_id: '' })
+  const [voiceHooks, setVoiceHooks] = useState(null)
   const [cfg, setCfg] = useState(emptyConfig)
 
-  const load = () => apiGet('/admin/settings').then((d) => {
+  const load = () => Promise.all([
+    apiGet('/admin/settings'),
+    apiGet('/admin/voice/context').catch(() => null),
+  ]).then(([d, v]) => {
     if (!d) return
     setContact({
       support_whatsapp: d.support_whatsapp || '+965 510 22389',
       support_email: d.support_email || 'sts@shgardiauto.com',
       currency: d.currency || 'KWD',
     })
+    if (d.vonage) setVonage((x) => ({ ...x, ...d.vonage }))
     if (d.site_config) setCfg((x) => ({ ...x, ...d.site_config }))
+    if (v) setVoiceHooks(v)
   }).catch(() => {})
 
   useEffect(() => { load() }, [])
@@ -126,6 +134,7 @@ export function Settings() {
         support_email: contact.support_email,
         currency: contact.currency,
         site_config: cfg,
+        vonage,
       })
       toast(t('toast_saved'))
     } catch {
@@ -263,6 +272,41 @@ export function Settings() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {tab === 'voice' && (
+            <div className="settings-card">
+              <h3><Icon name="phone-call" /><span>{t('se_voice_h')}</span></h3>
+              <p className="settings-hint">{t('se_voice_p')}</p>
+              <div className="settings-grid-2">
+                <div className="field"><label>{t('se_vonage_key')}</label>
+                  <input value={vonage.vonage_api_key || ''} onChange={(e) => setVonage((v) => ({ ...v, vonage_api_key: e.target.value }))} placeholder="Vonage API Key" />
+                </div>
+                <div className="field"><label>{t('se_vonage_app')}</label>
+                  <input value={vonage.vonage_application_id || ''} onChange={(e) => setVonage((v) => ({ ...v, vonage_application_id: e.target.value }))} placeholder="Application ID" />
+                </div>
+                <div className="field"><label>{t('se_vonage_secret')}</label>
+                  <input type="password" value={vonage.vonage_api_secret || ''} onChange={(e) => setVonage((v) => ({ ...v, vonage_api_secret: e.target.value }))} placeholder={vonage.vonage_api_secret?.includes('••') ? vonage.vonage_api_secret : 'API Secret'} autoComplete="off" />
+                </div>
+                <div className="field"><label>{t('se_vonage_sig')}</label>
+                  <input type="password" value={vonage.vonage_signature_secret || ''} onChange={(e) => setVonage((v) => ({ ...v, vonage_signature_secret: e.target.value }))} placeholder={vonage.vonage_signature_secret?.includes('••') ? vonage.vonage_signature_secret : 'Signature Secret'} autoComplete="off" />
+                </div>
+              </div>
+              {voiceHooks && (
+                <div style={{ marginTop: 20 }}>
+                  <h4 style={{ fontSize: 14, marginBottom: 10 }}>{t('se_vonage_hooks')}</h4>
+                  {[
+                    ['Answer URL', voiceHooks.incoming_url],
+                    ['Event URL', voiceHooks.event_url],
+                    ['WebSocket', voiceHooks.websocket_url],
+                  ].map(([lbl, url]) => (
+                    <div className="field" key={lbl}><label>{lbl}</label>
+                      <input readOnly value={url || ''} onClick={(e) => e.target.select()} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

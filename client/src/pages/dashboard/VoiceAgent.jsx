@@ -21,10 +21,16 @@ export function VoiceWebhookCard({ endpoint = '/me/voice/webhook-info' }) {
           <button className="btn btn-o" onClick={() => copy(info?.incoming_url)}><Icon name="copy" size={14} /></button>
         </div>
       </div>
-      <div className="field"><label><T k="vc_status_url" /></label>
+      <div className="field"><label><T k="vc_event_url" /></label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input readOnly value={info?.status_url || ''} />
-          <button className="btn btn-o" onClick={() => copy(info?.status_url)}><Icon name="copy" size={14} /></button>
+          <input readOnly value={info?.event_url || ''} />
+          <button className="btn btn-o" onClick={() => copy(info?.event_url)}><Icon name="copy" size={14} /></button>
+        </div>
+      </div>
+      <div className="field"><label><T k="vc_ws_url" /></label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input readOnly value={info?.websocket_url || ''} />
+          <button className="btn btn-o" onClick={() => copy(info?.websocket_url)}><Icon name="copy" size={14} /></button>
         </div>
       </div>
     </div>

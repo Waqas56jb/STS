@@ -8,7 +8,7 @@
  * This process must be a persistent Node host (Railway / VPS). Do not
  * run Baileys sockets on Vercel serverless.
  *
- * Group chats are ignored. Only 1:1 text is sent to handleInboundWhatsApp.
+ * Group chats are ignored. 1:1 text + voice notes are sent to handleInboundWhatsApp.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,6 +18,7 @@ import QRCode from 'qrcode'
 import pino from 'pino'
 import { pool, one, many } from '../db.js'
 import { encryptJSON, decryptJSON } from './crypto.js'
+import { transcribeWhatsAppAudio } from './whatsappVoice.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_DIR = path.resolve(__dirname, '../.whatsapp-sessions')
@@ -34,6 +35,52 @@ const lastStart = new Map()
 const starting = new Set()
 const reconnecting = new Set()
 const persistTimers = new Map()
+/** Monotonic id per socket — ignore close events from replaced connections. */
+const sessionGen = new Map()
+/** Pending reconnect timers — only one per business. */
+const reconnectTimers = new Map()
+
+function clearReconnectTimer(businessId) {
+  const t = reconnectTimers.get(businessId)
+  if (t) {
+    clearTimeout(t)
+    reconnectTimers.delete(businessId)
+  }
+}
+
+function destroyActiveSocket(businessId) {
+  const s = sessions.get(businessId)
+  if (!s?.sock) return
+  const sock = s.sock
+  sessions.set(businessId, { ...s, sock: null })
+  try { sock.ev?.removeAllListeners?.() } catch { /* ignore */ }
+  try { sock.end(undefined) } catch { /* ignore */ }
+  try { sock.ws?.close() } catch { /* ignore */ }
+}
+
+/** Recently handled inbound WA message ids (Baileys may emit duplicates). */
+const recentInbound = new Map()
+const inboundInflight = new Set()
+const INBOUND_TTL_MS = 3 * 60 * 1000
+
+function inboundDedupeKey(businessId, keyId) {
+  return `${businessId}:${keyId}`
+}
+
+function markInboundSeen(key) {
+  recentInbound.set(key, Date.now())
+  for (const [k, t] of recentInbound) {
+    if (Date.now() - t > INBOUND_TTL_MS) recentInbound.delete(k)
+  }
+}
+
+function isInboundDuplicate(businessId, keyId) {
+  if (!keyId) return true
+  const key = inboundDedupeKey(businessId, keyId)
+  if (inboundInflight.has(key)) return true
+  const seenAt = recentInbound.get(key)
+  return seenAt != null && Date.now() - seenAt < INBOUND_TTL_MS
+}
 
 export function setQrInboundHandler(fn) {
   inboundHandler = fn
@@ -181,7 +228,7 @@ export async function resolveQrStatus(businessId) {
   try { creds = row ? decryptJSON(row.secrets_enc) : {} } catch { creds = {} }
   const paired = creds.provider === 'qr' && creds.status === 'connected' && (row?.qr_auth_enc || hasRegisteredCreds(businessId))
   if (!paired) return live
-  if (!starting.has(businessId) && !reconnecting.has(businessId) && !sessions.get(businessId)?.sock) {
+  if (!starting.has(businessId) && !reconnecting.has(businessId) && !reconnectTimers.has(businessId) && !sessions.get(businessId)?.sock) {
     startQrSession(businessId, { restore: true }).catch((e) => log('auto-resume failed', e.message))
   }
   return {
@@ -234,6 +281,7 @@ async function loadBaileys() {
     useMultiFileAuthState: root.useMultiFileAuthState,
     DisconnectReason: root.DisconnectReason || {},
     Browsers: root.Browsers,
+    downloadMediaMessage: root.downloadMediaMessage,
   }
 }
 
@@ -301,6 +349,49 @@ export async function sendQrText(businessId, to, text) {
   await s.sock.sendMessage(dest, { text: String(text).slice(0, 4096) })
 }
 
+/** Show "typing…" or "recording audio…" in the customer's WhatsApp chat. */
+export async function sendQrPresence(businessId, to, type) {
+  const s = sessions.get(businessId)
+  if (!s?.sock || s.status !== 'connected') return
+  const dest = toWhatsAppJid(to)
+  if (!dest) return
+  try {
+    await s.sock.presenceSubscribe(dest)
+    await s.sock.sendPresenceUpdate(type, dest)
+  } catch (e) {
+    log(`business=${businessId} presence ${type} failed`, e.message)
+  }
+}
+
+/**
+ * Keep presence visible while the AI thinks / TTS runs (WA expires after ~10s).
+ * Returns a stop() that clears the indicator.
+ */
+export function beginQrPresence(businessId, to, type) {
+  let timer = null
+  const pulse = () => { sendQrPresence(businessId, to, type).catch(() => {}) }
+  pulse()
+  timer = setInterval(pulse, 4500)
+  return () => {
+    if (timer) clearInterval(timer)
+    timer = null
+    return sendQrPresence(businessId, to, 'paused')
+  }
+}
+
+export async function sendQrVoice(businessId, to, audioBuffer, mimeType = 'audio/ogg; codecs=opus') {
+  const s = sessions.get(businessId)
+  if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
+  const dest = toWhatsAppJid(to)
+  if (!dest) throw new Error('Invalid WhatsApp recipient')
+  log(`business=${businessId} send voice → ${dest}`)
+  await s.sock.sendMessage(dest, {
+    audio: audioBuffer,
+    mimetype: mimeType,
+    ptt: true,
+  })
+}
+
 export async function startQrSession(businessId, { restore = false } = {}) {
   if (!QR_ENABLED) throw new Error('WhatsApp QR is disabled')
   const existing = sessions.get(businessId)
@@ -316,13 +407,15 @@ export async function startQrSession(businessId, { restore = false } = {}) {
   }
   lastStart.set(businessId, now)
   starting.add(businessId)
+  clearReconnectTimer(businessId)
+
+  const gen = (sessionGen.get(businessId) || 0) + 1
+  sessionGen.set(businessId, gen)
 
   try {
-    if (existing?.sock) {
-      try { existing.sock.ev?.removeAllListeners?.() } catch { /* ignore */ }
-    }
+    if (existing?.sock) destroyActiveSocket(businessId)
 
-    setState(businessId, { status: restore ? 'reconnecting' : 'starting', qr: restore ? null : existing?.qr || null, error: null })
+    setState(businessId, { status: restore ? 'reconnecting' : 'starting', qr: restore ? null : existing?.qr || null, error: null, sock: null })
     log(`business=${businessId} status=${restore ? 'reconnecting' : 'starting'}`)
 
     await hydrateAuthFromDb(businessId).catch(() => {})
@@ -352,6 +445,7 @@ export async function startQrSession(businessId, { restore = false } = {}) {
     })
 
     sock.ev.on('connection.update', async (update) => {
+      if (sessionGen.get(businessId) !== gen) return
       try {
         const { connection, lastDisconnect, qr } = update
         if (qr) {
@@ -365,6 +459,7 @@ export async function startQrSession(businessId, { restore = false } = {}) {
         }
         if (connection === 'open') {
           reconnecting.delete(businessId)
+          clearReconnectTimer(businessId)
           const display = displayFromJid(sock.user?.id)
           setState(businessId, {
             status: 'connected',
@@ -378,14 +473,15 @@ export async function startQrSession(businessId, { restore = false } = {}) {
           log(`business=${businessId} status=connected number=${display}`)
         }
         if (connection === 'close') {
+          if (sessionGen.get(businessId) !== gen) return
           const err = lastDisconnect?.error
           const code = err?.output?.statusCode ?? err?.statusCode
-          // Only the phone "Unlink device" / loggedOut should drop the pairing.
-          // 440 = replaced connection, 515 = restartRequired — reconnect, do not ask to scan.
           const loggedOut = code === baileys.DisconnectReason.loggedOut
           log(`business=${businessId} closed code=${code ?? 'unknown'}`)
+          destroyActiveSocket(businessId)
           if (loggedOut) {
             reconnecting.delete(businessId)
+            clearReconnectTimer(businessId)
             setState(businessId, { status: 'logged_out', qr: null, sock: null, error: 'Unlinked on the phone — scan a new QR' })
             await persistMeta(businessId, { status: 'logged_out' }).catch(() => {})
             wipeSessionDir(businessId)
@@ -393,14 +489,17 @@ export async function startQrSession(businessId, { restore = false } = {}) {
             log(`business=${businessId} status=logged_out`)
             return
           }
-          if (reconnecting.has(businessId)) return
+          if (reconnectTimers.has(businessId)) return
           reconnecting.add(businessId)
           setState(businessId, { status: 'reconnecting', qr: null, error: null, sock: null })
-          setTimeout(() => {
+          const delay = code === 515 ? 1200 : code === 440 ? 8000 : 4000
+          const timer = setTimeout(() => {
+            reconnectTimers.delete(businessId)
+            if (sessionGen.get(businessId) !== gen) return
             startQrSession(businessId, { restore: true })
               .catch((e) => log('reconnect failed', e.message))
-              .finally(() => reconnecting.delete(businessId))
-          }, code === 515 ? 800 : 2000)
+          }, delay)
+          reconnectTimers.set(businessId, timer)
         }
       } catch (e) {
         log(`business=${businessId} connection.update error`, e.message)
@@ -409,7 +508,8 @@ export async function startQrSession(businessId, { restore = false } = {}) {
     })
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type === 'prepend') return
+      // Only brand-new live messages — ignore history sync / duplicates.
+      if (type !== 'notify') return
       for (const m of messages || []) {
         try {
           await handleBaileysMessage(businessId, m)
@@ -430,27 +530,81 @@ async function handleBaileysMessage(businessId, m) {
   const jid = m.key.remoteJid || ''
   if (jid.endsWith('@g.us') || jid === 'status@broadcast' || jid.endsWith('@broadcast')) return // groups / status ignored
 
-  const message = m.message || {}
-  const text = extractText(message).trim()
-  const kind = mediaKind(unwrapMessage(message))
-  if (!text && kind) {
-    log(`business=${businessId} skipped ${kind} (MVP text only)`)
+  const dedupeKey = inboundDedupeKey(businessId, m.key.id)
+  if (isInboundDuplicate(businessId, m.key.id)) {
+    log(`business=${businessId} skipped duplicate msg ${m.key.id}`)
     return
   }
-  if (!text) return
+  inboundInflight.add(dedupeKey)
 
-  const alt = m.key.remoteJidAlt || m.key.senderPn || ''
-  const replyJid = jid || alt
-  const from = replyJid || normalizeWaHandle(alt) || normalizeWaHandle(jid)
-  if (!from) return
-  const name = m.pushName || normalizeWaHandle(alt || jid) || from
-  const messageId = `qr:${businessId}:${m.key.id}`
-  if (!inboundHandler) {
-    log(`business=${businessId} no inbound handler`)
-    return
+  try {
+    const message = m.message || {}
+    const unwrapped = unwrapMessage(message)
+    const text = extractText(message).trim()
+    const kind = mediaKind(unwrapped)
+    const alt = m.key.remoteJidAlt || m.key.senderPn || ''
+    const replyJid = jid || alt
+    let inboundText = text
+    let isVoice = false
+
+    if (!text && kind === 'audio') {
+      const s = sessions.get(businessId)
+      if (!s?.sock || s.status !== 'connected') return
+      try {
+        const baileys = await loadBaileys()
+        if (!baileys.downloadMediaMessage) throw new Error('Baileys downloadMediaMessage not found')
+        const stopThinking = beginQrPresence(businessId, replyJid, 'composing')
+        const buffer = await baileys.downloadMediaMessage(
+          m,
+          'buffer',
+          {},
+          { reuploadRequest: s.sock.updateMediaMessage, logger: pino({ level: 'silent' }) },
+        )
+        const mime = unwrapped.audioMessage?.mimetype || 'audio/ogg; codecs=opus'
+        try {
+          inboundText = await transcribeWhatsAppAudio(buffer, mime)
+        } finally {
+          await stopThinking()
+        }
+        isVoice = true
+        if (!inboundText) {
+          log(`business=${businessId} voice empty transcript`)
+          return
+        }
+        log(`business=${businessId} voice transcript="${inboundText.slice(0, 80)}"`)
+      } catch (e) {
+        log(`business=${businessId} voice failed`, e.message)
+        return
+      }
+    } else if (!text && kind) {
+      log(`business=${businessId} skipped ${kind} (text + voice only)`)
+      return
+    }
+    if (!inboundText) return
+
+    const from = replyJid || normalizeWaHandle(alt) || normalizeWaHandle(jid)
+    if (!from) return
+    const name = m.pushName || normalizeWaHandle(alt || jid) || from
+    const messageId = `qr:${businessId}:${m.key.id}`
+    if (!inboundHandler) {
+      log(`business=${businessId} no inbound handler`)
+      return
+    }
+    log(`business=${businessId} incoming from=${from}${isVoice ? ' (voice)' : ''}`)
+    await inboundHandler(businessId, {
+      from,
+      jid: replyJid,
+      name,
+      text: inboundText,
+      messageId,
+      isVoice,
+      previewText: isVoice ? `🎤 ${inboundText.slice(0, 120)}` : undefined,
+      inboundBody: isVoice ? `[Voice] ${inboundText}` : inboundText,
+    })
+    markInboundSeen(dedupeKey)
+  } finally {
+    inboundInflight.delete(dedupeKey)
   }
-  log(`business=${businessId} incoming from=${from}`)
-  await inboundHandler(businessId, { from, jid: replyJid, name, text, messageId })
 }
 
 function wipeSessionDir(businessId) {
@@ -459,11 +613,10 @@ function wipeSessionDir(businessId) {
 }
 
 export async function stopQrSession(businessId, { wipe = false } = {}) {
-  const s = sessions.get(businessId)
-  if (s?.sock) {
-    try { s.sock.end(undefined) } catch { /* ignore */ }
-    try { s.sock.ws?.close() } catch { /* ignore */ }
-  }
+  clearReconnectTimer(businessId)
+  reconnecting.delete(businessId)
+  sessionGen.set(businessId, (sessionGen.get(businessId) || 0) + 1)
+  destroyActiveSocket(businessId)
   sessions.delete(businessId)
   if (wipe) {
     wipeSessionDir(businessId)
@@ -499,6 +652,8 @@ export async function restoreQrSessions() {
     if (creds.status === 'logged_out') continue
     const hydrated = await hydrateAuthFromDb(r.business_id).catch(() => false)
     if (!hydrated && !hasRegisteredCreds(r.business_id) && !r.qr_auth_enc) continue
+    // Stagger restores so multiple businesses don't fight for connections at once.
+    await new Promise((res) => setTimeout(res, 1500 * rows.indexOf(r)))
     startQrSession(r.business_id, { restore: true }).catch((e) => log(`restore ${r.business_id} failed`, e.message))
   }
 }

@@ -43,15 +43,17 @@ export const CONNECTION_SPEC = {
     ],
   },
   voice: {
-    label: 'Voice Agent — Twilio',
+    label: 'Voice Agent — Vonage',
     icon: 'phone-call',
-    extRef: 'twilio_number',
-    required: ['account_sid', 'auth_token', 'twilio_number'],
+    extRef: 'vonage_number',
+    required: ['vonage_number'],
     fields: [
-      { key: 'account_sid', label: 'Twilio Account SID', secret: true },
-      { key: 'auth_token', label: 'Twilio Auth Token', secret: true },
-      { key: 'twilio_number', label: 'Twilio Phone Number', secret: false },
-      { key: 'voice_provider', label: 'Voice Provider', secret: false, type: 'select', options: ['standard', 'elevenlabs'] },
+      { key: 'telephony_provider', label: 'Telephony Provider', secret: false, type: 'select', options: ['vonage', 'twilio'] },
+      { key: 'vonage_number', label: 'Vonage Phone Number (E.164)', secret: false },
+      { key: 'account_sid', label: 'Twilio Account SID (legacy)', secret: true },
+      { key: 'auth_token', label: 'Twilio Auth Token (legacy)', secret: true },
+      { key: 'twilio_number', label: 'Twilio Phone Number (legacy)', secret: false },
+      { key: 'voice_provider', label: 'AI Voice Engine', secret: false, type: 'select', options: ['standard', 'elevenlabs'] },
       { key: 'elevenlabs_api_key', label: 'ElevenLabs API Key (premium voice)', secret: true },
       { key: 'elevenlabs_voice_id', label: 'ElevenLabs Voice ID', secret: false },
     ],
@@ -66,6 +68,13 @@ export function isConnected(channel, creds) {
   if (channel === 'whatsapp' && creds.provider === 'qr') return creds.status === 'connected'
   const spec = CONNECTION_SPEC[channel]
   if (!spec) return false
+  if (channel === 'voice') {
+    const provider = creds.telephony_provider || 'vonage'
+    if (provider === 'twilio') {
+      return ['account_sid', 'auth_token', 'twilio_number'].every((k) => String(creds[k] || '').trim() !== '')
+    }
+    return String(creds.vonage_number || '').trim() !== ''
+  }
   return spec.required.every((k) => String(creds[k] || '').trim() !== '')
 }
 

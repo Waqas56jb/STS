@@ -10,13 +10,14 @@ const isLocal =
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
 
 const PROD_API = 'https://sts-production-85ff.up.railway.app/api'
+const LOCAL_API = 'http://localhost:4000/api'
 
 export const API =
-  window.STS_API || (isLocal ? '/api' : (import.meta.env.VITE_API_URL || PROD_API))
+  window.STS_API || (isLocal ? LOCAL_API : (import.meta.env.VITE_API_URL || PROD_API))
 
 /** Where an admin-role login is sent (separate Vercel deployment). */
 export const ADMIN_APP_URL =
-  import.meta.env.VITE_ADMIN_URL || (isLocal ? '/admin/' : 'https://sts-admin-roan.vercel.app/')
+  import.meta.env.VITE_ADMIN_URL || (isLocal ? 'http://localhost:5175/' : 'https://sts-admin-roan.vercel.app/')
 
 export const WHATSAPP = 'https://wa.me/96551022389'
 
@@ -113,6 +114,26 @@ export async function apiUpload(path, file, fields = {}) {
 export function saveSession({ token, user }) {
   if (token) localStorage.setItem('sts_token', token)
   if (user) localStorage.setItem('sts_user', JSON.stringify(user))
+}
+
+/** Pass session to another STS app origin (admin ↔ client on different localhost ports). */
+export function redirectWithSession(baseUrl, { token }) {
+  const dest = new URL(baseUrl, window.location.origin)
+  dest.searchParams.set('sts_token', token)
+  window.location.href = dest.toString()
+}
+
+/** Consume ?sts_token= from a cross-app redirect (dev: client :5173 → admin :5175). */
+export function consumeTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search)
+  const token = params.get('sts_token')
+  if (!token) return false
+  localStorage.setItem('sts_token', token)
+  params.delete('sts_token')
+  const q = params.toString()
+  const path = window.location.pathname + (q ? `?${q}` : '') + window.location.hash
+  window.history.replaceState({}, '', path)
+  return true
 }
 export function getUser() {
   try {

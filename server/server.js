@@ -7,7 +7,7 @@ import { encryptJSON, decryptJSON, maskCredentials, maskValue } from './lib/cryp
 import { CONNECTION_SPEC, CHANNELS, isConnected, resolveWhatsAppProvider } from './lib/channels.js'
 import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
 import { verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
-import { sendWhatsAppByProvider } from './lib/whatsappTransport.js'
+import { sendWhatsAppByProvider, beginQrPresence } from './lib/whatsappTransport.js'
 import { parseInboundInstagramMessages, sendInstagramText } from './lib/instagram.js'
 import {
   attachQrSocket, startQrSession, stopQrSession, logoutQrSession, resolveQrStatus,
@@ -28,7 +28,10 @@ import {
 } from './lib/tenant.js'
 import multer from 'multer'
 import { extractDocumentText, isSupportedTrainingFile } from './lib/extractText.js'
-import { twimlStream, twilioCreateCall, attachVoiceBridge } from './lib/voice.js'
+import { twimlStream, twilioCreateCall, attachVoiceBridge, attachVonageVoiceBridge } from './lib/voice.js'
+import {
+  getPlatformVonage, maskVonageForAdmin, verifyVonageSignature, nccoConnectWebsocket, vonageCreateCall, upsertVonageSettings,
+} from './lib/vonage.js'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -241,10 +244,12 @@ app.post('/api/webhooks/whatsapp', wrap(async (req, res) => {
 }))
 
 /** Store inbound message + AI reply with long-term customer memory (all chat channels). */
-async function handleInboundChat({ businessId, channel, customerHandle, customerName, text, messageId, sendOutbound }) {
+async function handleInboundChat({ businessId, channel, customerHandle, customerName, text, messageId, sendOutbound, previewText, inboundBody, beginPresence }) {
   const bizRow = await one(`select name from sts_businesses where id=$1`, [businessId])
   const memKey = customerKey(customerHandle, channel)
   const sinceLabel = new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+  const preview = previewText || text
+  const storedBody = inboundBody || text
 
   const conv = await one(
     `insert into sts_conversations (business_id, channel, customer_handle, customer_name, customer_since, last_message_preview, last_message_at, unread)
@@ -255,7 +260,7 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
        last_message_preview = excluded.last_message_preview, last_message_at = now(),
        unread = sts_conversations.unread + 1
      returning id, mode`,
-    [businessId, channel === 'website' ? 'web' : channel, customerHandle, customerName, sinceLabel, text],
+    [businessId, channel === 'website' ? 'web' : channel, customerHandle, customerName, sinceLabel, preview],
   )
 
   if (messageId) {
@@ -263,13 +268,16 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
       `insert into sts_messages (conversation_id, business_id, direction, sender, body, provider_msg_id)
        values ($1,$2,'in','customer',$3,$4)
        on conflict (provider_msg_id) do nothing returning id`,
-      [conv.id, businessId, text, messageId],
+      [conv.id, businessId, storedBody, messageId],
     )
-    if (!ins) return { conversationId: conv.id, reply: null, duplicate: true }
+    if (!ins) {
+      console.log(`[${channel}] duplicate inbound skipped:`, messageId)
+      return { conversationId: conv.id, reply: null, duplicate: true }
+    }
   } else {
     await pool.query(
       `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'in','customer',$3)`,
-      [conv.id, businessId, text],
+      [conv.id, businessId, storedBody],
     )
   }
 
@@ -291,47 +299,89 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
   }
 
   const history = await loadConversationHistory(conv.id)
-  const reply = await generateReply({
-    businessId,
-    businessName: bizRow?.name,
-    channel: channel === 'web' ? 'website' : channel,
-    userText: text,
-    history,
-    memory,
-    customerName: customerName || memory?.customer_name,
-  })
-  if (!reply) return { conversationId: conv.id, reply: null }
-
-  if (sendOutbound) {
-    try { await sendOutbound(reply) } catch (e) { console.error(`[${channel}] AI send failed:`, e.message) }
+  let endPresence = () => Promise.resolve()
+  if (beginPresence) endPresence = beginPresence()
+  let reply
+  try {
+    reply = await generateReply({
+      businessId,
+      businessName: bizRow?.name,
+      channel: channel === 'web' ? 'website' : channel,
+      userText: text,
+      history,
+      memory,
+      customerName: customerName || memory?.customer_name,
+    })
+  } catch (e) {
+    await endPresence()
+    throw e
+  }
+  if (!reply) {
+    await endPresence()
+    return { conversationId: conv.id, reply: null }
   }
 
+  if (sendOutbound) {
+    try { await sendOutbound(reply) } catch (e) {
+      console.error(`[${channel}] AI send failed:`, e.message)
+    } finally {
+      await endPresence()
+    }
+  } else {
+    await endPresence()
+  }
+
+  const outboundPreview = previewText && previewText.startsWith('🎤') ? `🎤 ${reply.slice(0, 120)}` : reply
   await pool.query(
     `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out','ai',$3)`,
     [conv.id, businessId, reply],
   )
-  await pool.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, reply])
+  await pool.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, outboundPreview])
 
   refreshCustomerMemory(businessId, memKey, conv.id).catch(() => {})
   return { conversationId: conv.id, reply }
 }
 
-/** WhatsApp wrapper — same memory engine as web/instagram. */
+/** WhatsApp wrapper — same memory engine as web/instagram. Voice notes reply with voice (QR only). */
 async function handleInboundWhatsApp(businessId, creds, msg) {
+  const provider = resolveWhatsAppProvider(creds)
+  const replyAsVoice = !!(msg.isVoice && provider === 'qr')
+  const dest = msg.jid || msg.from
   await handleInboundChat({
     businessId,
     channel: 'whatsapp',
     customerHandle: msg.from,
     customerName: msg.name,
     text: msg.text,
+    previewText: msg.previewText,
+    inboundBody: msg.inboundBody,
     messageId: msg.messageId,
-    sendOutbound: (reply) => sendWhatsAppByProvider({
-      provider: resolveWhatsAppProvider(creds),
-      businessId,
-      to: msg.jid || msg.from,
-      text: reply,
-      creds,
-    }),
+    beginPresence: provider === 'qr'
+      ? () => beginQrPresence(businessId, dest, replyAsVoice ? 'recording' : 'composing')
+      : undefined,
+    sendOutbound: async (reply) => {
+      try {
+        await sendWhatsAppByProvider({
+          provider,
+          businessId,
+          to: msg.jid || msg.from,
+          text: reply,
+          creds,
+          asVoice: replyAsVoice,
+        })
+      } catch (e) {
+        if (!replyAsVoice) throw e
+        console.error('[whatsapp] voice reply failed, falling back to text:', e.message)
+        await sendWhatsAppByProvider({
+          provider,
+          businessId,
+          to: msg.jid || msg.from,
+          text: reply,
+          creds,
+          asVoice: false,
+        })
+      }
+    },
   })
 }
 
@@ -1182,18 +1232,20 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
 }))
 
 /* ---------- ADMIN: platform settings ---------- */
-const SETTINGS_PLAIN = ['support_whatsapp', 'support_email', 'currency', 'site_config']
+const SETTINGS_PLAIN = ['support_whatsapp', 'support_email', 'currency', 'site_config', 'vonage_api_key', 'vonage_application_id']
 
 app.get('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
   if (!isPlatformAdmin(req.user)) return res.json({ support_whatsapp: '', support_email: '', currency: 'KWD', site_config: parseSiteConfig(null) })
   const rows = await many(`select key, value from sts_settings`)
   const map = {}
   rows.forEach((r) => (map[r.key] = r.value))
+  const vonage = await getPlatformVonage()
   res.json({
     support_whatsapp: map.support_whatsapp || DEFAULT_WHATSAPP,
     support_email: map.support_email || DEFAULT_EMAIL,
     currency: map.currency || 'KWD',
     site_config: parseSiteConfig(map.site_config),
+    vonage: maskVonageForAdmin(vonage),
   })
 }))
 
@@ -1221,6 +1273,7 @@ app.put('/api/admin/settings', auth, adminOnly, wrap(async (req, res) => {
     }
     await upsert(k, String(body[k]))
   }
+  if (body.vonage) await upsertVonageSettings(body.vonage)
   res.json({ ok: true })
 }))
 
@@ -1478,11 +1531,20 @@ function voiceWsUrl(req) {
   const proto = (req.get('x-forwarded-proto') || req.protocol) === 'https' ? 'wss' : 'ws'
   return `${proto}://${req.get('host')}/voice-stream`
 }
-function voiceWebhookInfo(base) {
+function vonageWsUrl(req) {
+  if (process.env.VONAGE_PUBLIC_WS_URL) return process.env.VONAGE_PUBLIC_WS_URL
+  const proto = (req.get('x-forwarded-proto') || req.protocol) === 'https' ? 'wss' : 'ws'
+  return `${proto}://${req.get('host')}/vonage-stream`
+}
+function voiceWebhookInfo(base, req) {
   return {
-    incoming_url: `${base}/api/voice/incoming`,
-    status_url: `${base}/api/voice/status`,
-    note: 'Twilio → your number → Voice Configuration → "A call comes in" = Webhook, HTTP POST → paste incoming_url. (Optional) Call status changes → status_url.',
+    provider: 'vonage',
+    incoming_url: `${base}/api/vonage/answer`,
+    event_url: `${base}/api/vonage/event`,
+    websocket_url: vonageWsUrl(req),
+    twilio_incoming_url: `${base}/api/voice/incoming`,
+    twilio_status_url: `${base}/api/voice/status`,
+    note: 'Vonage Application → Answer URL = incoming_url, Event URL = event_url. WebSocket URI is used automatically in the NCCO.',
   }
 }
 function callShape(r, full) {
@@ -1498,38 +1560,122 @@ async function callList(businessId) {
   const rows = await many(`select * from sts_call_logs where business_id=$1 order by created_at desc limit 100`, [businessId])
   return rows.map((r) => callShape(r, false))
 }
-/** Find the business that owns a given Twilio number (voice connection). */
-async function businessByTwilioNumber(num) {
+/** Find the business that owns a voice number (Vonage or Twilio). */
+async function businessByVoiceNumber(num) {
   const target = digits(num)
   const rows = await many(`select business_id, secrets_enc from sts_channel_configs where channel='voice'`)
   for (const r of rows) {
-    try { if (digits(decryptJSON(r.secrets_enc).twilio_number) === target) return r.business_id } catch { /* skip */ }
+    try {
+      const c = decryptJSON(r.secrets_enc)
+      const provider = c.telephony_provider || 'vonage'
+      const n = provider === 'twilio' ? c.twilio_number : c.vonage_number
+      if (digits(n) === target) return r.business_id
+    } catch { /* skip */ }
   }
   return null
 }
-/** Place an outbound call for a business (shared by customer + admin). */
-async function startOutboundCall(businessId, toRaw, base) {
+const businessByTwilioNumber = businessByVoiceNumber
+/** Place an outbound call for a business (Vonage default, Twilio legacy). */
+async function startOutboundCall(businessId, toRaw, base, req) {
   const to = digits(toRaw)
   if (!to || to.replace('+', '').length < 6) { const e = new Error('Enter a valid number with country code'); e.code = 400; throw e }
   const creds = await getChannelCreds(businessId, 'voice')
-  if (!creds?.account_sid || !creds?.auth_token || !creds?.twilio_number) {
-    const e = new Error('Connect your Twilio voice credentials first (Settings → Voice)'); e.code = 400; throw e
+  const provider = creds?.telephony_provider || 'vonage'
+
+  if (provider === 'twilio' && creds?.account_sid && creds?.auth_token && creds?.twilio_number) {
+    const twimlUrl = `${base}/api/voice/outgoing?businessId=${businessId}&to=${encodeURIComponent(to)}`
+    const call = await twilioCreateCall({
+      accountSid: creds.account_sid, authToken: creds.auth_token, from: creds.twilio_number,
+      to, twimlUrl, statusCallback: `${base}/api/voice/status`,
+    })
+    await pool.query(
+      `insert into sts_call_logs (business_id, direction, from_number, to_number, caller, status, provider_call_sid, started_at)
+       values ($1,'outbound',$2,$3,$3,'initiated',$4, now()) on conflict (provider_call_sid) do nothing`,
+      [businessId, creds.twilio_number, to, call.sid],
+    ).catch(() => {})
+    return call
   }
-  const twimlUrl = `${base}/api/voice/outgoing?businessId=${businessId}&to=${encodeURIComponent(to)}`
-  const call = await twilioCreateCall({
-    accountSid: creds.account_sid, authToken: creds.auth_token, from: creds.twilio_number,
-    to, twimlUrl, statusCallback: `${base}/api/voice/status`,
+
+  const vonage = await getPlatformVonage()
+  const from = creds?.vonage_number
+  if (!vonage.configured) {
+    const e = new Error('Vonage is not configured — add API credentials in Admin → Settings → Voice'); e.code = 400; throw e
+  }
+  if (!from) {
+    const e = new Error('Connect your Vonage phone number first (Voice settings)'); e.code = 400; throw e
+  }
+  const answerUrl = `${base}/api/vonage/answer?businessId=${businessId}&direction=outbound&to=${encodeURIComponent(to)}&from=${encodeURIComponent(from)}`
+  const eventUrl = `${base}/api/vonage/event`
+  const call = await vonageCreateCall({
+    apiKey: vonage.api_key,
+    apiSecret: vonage.api_secret,
+    from,
+    to,
+    answerUrl,
+    eventUrl,
   })
+  const uuid = call.uuid || call.conversation_uuid
   await pool.query(
     `insert into sts_call_logs (business_id, direction, from_number, to_number, caller, status, provider_call_sid, started_at)
      values ($1,'outbound',$2,$3,$3,'initiated',$4, now()) on conflict (provider_call_sid) do nothing`,
-    [businessId, creds.twilio_number, to, call.sid],
+    [businessId, from, to, uuid],
   ).catch(() => {})
   return call
 }
 /** Each admin trains agents on their own workspace — never a shared platform row. */
 
-/* ---------- public Twilio webhooks (no auth) ---------- */
+/* ---------- Vonage Voice webhooks (no auth — signature optional) ---------- */
+async function handleVonageAnswer(req, res) {
+  const vonage = await getPlatformVonage()
+  const payload = { ...req.query, ...(req.body || {}) }
+  if (vonage.signature_secret && !verifyVonageSignature(payload, vonage.signature_secret)) {
+    return res.status(401).json({ error: 'Invalid signature' })
+  }
+  const from = payload.from
+  const to = payload.to
+  const uuid = payload.uuid
+  const direction = payload.direction || req.query.direction || 'inbound'
+  const businessId = req.query.businessId || payload.businessId || await businessByVoiceNumber(to)
+  if (!businessId) {
+    return res.json([{ action: 'talk', text: 'This number is not configured. Goodbye.' }, { action: 'hangup' }])
+  }
+  if (direction === 'inbound') {
+    await pool.query(
+      `insert into sts_call_logs (business_id, direction, from_number, to_number, caller, status, provider_call_sid, started_at)
+       values ($1,'inbound',$2,$3,$2,'in_progress',$4, now()) on conflict (provider_call_sid) do nothing`,
+      [businessId, from, to, uuid],
+    ).catch(() => {})
+  }
+  const ws = vonageWsUrl(req)
+  res.json(nccoConnectWebsocket(ws, {
+    businessId: String(businessId),
+    direction: String(direction),
+    from: String(from || ''),
+    to: String(to || ''),
+    callUuid: String(uuid || ''),
+  }))
+}
+app.get('/api/vonage/answer', wrap(handleVonageAnswer))
+app.post('/api/vonage/answer', wrap(handleVonageAnswer))
+
+app.post('/api/vonage/event', wrap(async (req, res) => {
+  const vonage = await getPlatformVonage()
+  const payload = { ...req.query, ...req.body }
+  if (vonage.signature_secret && !verifyVonageSignature(payload, vonage.signature_secret)) {
+    return res.status(401).json({ error: 'Invalid signature' })
+  }
+  const status = payload.status || payload.event
+  const uuid = payload.uuid || payload.conversation_uuid
+  if (uuid && ['completed', 'failed', 'rejected', 'busy', 'timeout', 'cancelled'].includes(String(status))) {
+    await pool.query(
+      `update sts_call_logs set status=$2, ended_at=now() where provider_call_sid=$1`,
+      [uuid, status === 'completed' ? 'completed' : 'failed'],
+    ).catch(() => {})
+  }
+  res.status(200).send('')
+}))
+
+/* ---------- public Twilio webhooks (legacy) ---------- */
 app.post('/api/voice/incoming', wrap(async (req, res) => {
   const to = req.body.To || req.body.Called
   const from = req.body.From || req.body.Caller
@@ -1573,7 +1719,7 @@ app.post('/api/voice/status', wrap(async (req, res) => {
 /* ---------- CUSTOMER voice endpoints ---------- */
 app.post('/api/me/calls/dial', auth, wrap(async (req, res) => {
   try {
-    const call = await startOutboundCall(biz(req), req.body?.to, voiceBase(req))
+    const call = await startOutboundCall(biz(req), req.body?.to, voiceBase(req), req)
     res.json({ ok: true, call_sid: call.sid, status: call.status })
   } catch (e) { res.status(e.code || 500).json({ error: e.message }) }
 }))
@@ -1582,11 +1728,11 @@ app.get('/api/me/calls/:id', auth, wrap(async (req, res) => {
   if (!row) return res.status(404).json({ error: 'Not found' })
   res.json(callShape(row, true))
 }))
-app.get('/api/me/voice/webhook-info', auth, wrap(async (req, res) => res.json(voiceWebhookInfo(voiceBase(req)))))
+app.get('/api/me/voice/webhook-info', auth, wrap(async (req, res) => res.json(voiceWebhookInfo(voiceBase(req), req))))
 
 /* ---------- ADMIN voice endpoints (STS Official business) ---------- */
 app.get('/api/admin/voice/context', auth, adminOnly, wrap(async (req, res) => {
-  res.json({ business_id: adminWorkspace(req), ...voiceWebhookInfo(voiceBase(req)) })
+  res.json({ business_id: adminWorkspace(req), ...voiceWebhookInfo(voiceBase(req), req) })
 }))
 app.get('/api/admin/voice/connection', auth, adminOnly, wrap(async (req, res) => {
   const conns = await connectionsFor(adminWorkspace(req), true)
@@ -1602,7 +1748,7 @@ app.delete('/api/admin/voice/connection', auth, adminOnly, wrap(async (req, res)
 }))
 app.post('/api/admin/voice/dial', auth, adminOnly, wrap(async (req, res) => {
   try {
-    const call = await startOutboundCall(adminWorkspace(req), req.body?.to, voiceBase(req))
+    const call = await startOutboundCall(adminWorkspace(req), req.body?.to, voiceBase(req), req)
     res.json({ ok: true, call_sid: call.sid, status: call.status })
   } catch (e) { res.status(e.code || 500).json({ error: e.message }) }
 }))
@@ -1666,7 +1812,7 @@ app.get('/api/admin/agent/context', auth, adminOnly, wrap(async (req, res) => {
     business_id: adminWorkspace(req),
     spec: CONNECTION_SPEC,
     whatsapp: { callback_url: `${voiceBase(req)}/api/webhooks/whatsapp`, verify_token: process.env.WHATSAPP_VERIFY_TOKEN || '' },
-    voice: voiceWebhookInfo(voiceBase(req)),
+    voice: voiceWebhookInfo(voiceBase(req), req),
   })
 }))
 
@@ -1899,6 +2045,19 @@ const server = http.createServer(app)
 // Twilio Media Streams connect here; each connection is bridged to OpenAI Realtime.
 const wss = new WebSocketServer({ server, path: '/voice-stream' })
 wss.on('connection', (ws) => attachVoiceBridge(ws))
+
+// Vonage Voice websocket (PCM16) → OpenAI Realtime
+const vonageWss = new WebSocketServer({ server, path: '/vonage-stream' })
+vonageWss.on('connection', (ws, req) => {
+  const h = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k.toLowerCase(), v]))
+  attachVonageVoiceBridge(ws, {
+    businessId: h.businessid || h.businessId,
+    direction: h.direction || 'inbound',
+    from: h.from,
+    to: h.to,
+    callUuid: h.calluuid || '',
+  })
+})
 
 // Authenticated WhatsApp QR status stream (?token=JWT). Persistent host only (not Vercel).
 const waWss = new WebSocketServer({ server, path: '/wa-events' })

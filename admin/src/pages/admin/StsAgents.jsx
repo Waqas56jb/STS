@@ -8,30 +8,67 @@ import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
 import { AgentHistoryPanel } from './AgentActivity'
 
 export function StsAgents() {
+  const { t } = useAdminT()
   const [ctx, setCtx] = useState(null)
-  useEffect(() => { apiGet('/admin/agent/context').then(setCtx).catch(() => {}) }, [])
+  const [businessId, setBusinessId] = useState(null)
+  const [loadErr, setLoadErr] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [context, me] = await Promise.all([
+          apiGet('/admin/agent/context'),
+          apiGet('/auth/me').catch(() => null),
+        ])
+        if (cancelled) return
+        setCtx(context)
+        setBusinessId(context?.business_id || me?.business_id || null)
+        setLoadErr('')
+      } catch {
+        if (cancelled) return
+        setLoadErr(t('err_server'))
+        try {
+          const me = await apiGet('/auth/me')
+          if (!cancelled) setBusinessId(me?.business_id || null)
+        } catch { /* ignore */ }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [t])
 
   return (
     <>
-      <ChannelAgent channel="whatsapp" ctx={ctx} />
+      {loadErr && (
+        <div className="al-err" style={{ marginBottom: 12 }}>
+          <Icon name="alert-triangle" size={16} />
+          <span>{loadErr} — start the API server on port 4000, then refresh.</span>
+        </div>
+      )}
+      <ChannelAgent channel="whatsapp" ctx={ctx} businessId={businessId} />
       <div style={{ marginTop: 18 }}><AgentHistoryPanel channel="whatsapp" /></div>
     </>
   )
 }
 
-function ChannelAgent({ channel, ctx }) {
+function ChannelAgent({ channel, ctx, businessId }) {
+  const { t } = useAdminT()
   return (
     <>
       <div className="grid g2" style={{ marginBottom: 18 }}>
         <AgentConnection channel={channel} spec={ctx?.spec?.[channel]} />
         {channel === 'whatsapp' && <WhatsAppWebhook ctx={ctx} />}
       </div>
-      {ctx?.business_id && (
+      {businessId ? (
         <TrainingStudio
-          api={adminTrainingApi(ctx.business_id)}
+          api={adminTrainingApi(businessId)}
           defaultChannel={channel}
           hideAgentPicker
         />
+      ) : (
+        <div className="card" style={{ color: 'var(--mut)' }}>
+          <Icon name="book-open" /> {t('train_tab')} — loading workspace…
+        </div>
       )}
     </>
   )
@@ -69,11 +106,13 @@ function AgentConnection({ channel, spec }) {
     try { await apiDelete(`/admin/agent/${channel}/connection`); setForm({}); await load(); toast(t('toast_disconnected')) }
     catch { toast(t('toast_delete_failed')) }
   }
-  if (!spec) return <div className="card"><h3><Icon name="plug-zap" />{t('conn_title')}</h3></div>
 
   return (
     <div className="card">
-      <h3><Icon name="plug-zap" />{spec.label.split(' — ')[0]} — {t('conn_title')}</h3>
+      <h3>
+        <Icon name="plug-zap" />
+        {spec ? `${spec.label.split(' — ')[0]} — ` : ''}{t('conn_title')}
+      </h3>
       <div className="conn-status">
         <span className={`badge ${current?.connected ? 'b-ok' : 'b-warn'}`}>
           {current?.connected ? t('connected') : t('not_connected')}
@@ -82,7 +121,7 @@ function AgentConnection({ channel, spec }) {
       {channel === 'whatsapp' && (
         <WhatsAppQrPanel base="/admin/agent/whatsapp/qr" />
       )}
-      {channel !== 'whatsapp' && spec.fields.map((f) => (
+      {spec && channel !== 'whatsapp' && spec.fields.map((f) => (
         <div className="field" key={f.key}>
           <label>{f.label}{spec.required.includes(f.key) && ' *'}</label>
           {f.type === 'select' ? (
@@ -104,7 +143,7 @@ function AgentConnection({ channel, spec }) {
           )}
         </div>
       ))}
-      {channel !== 'whatsapp' && (
+      {spec && channel !== 'whatsapp' && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-g" style={{ flex: 1, justifyContent: 'center' }} onClick={save} disabled={saving}>
             <Icon name="save" size={16} />{saving ? '…' : t('conn_save')}
