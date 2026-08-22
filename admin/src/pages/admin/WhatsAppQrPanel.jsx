@@ -6,7 +6,7 @@ import { apiGet, apiPostAuth } from '../../lib/api'
 const LIVE = new Set(['starting', 'qr', 'connecting', 'reconnecting'])
 
 export function WhatsAppQrPanel({ base, onChange }) {
-  const { isAr } = useAdminT()
+  const { t } = useAdminT()
   const [st, setSt] = useState({ status: 'disconnected', qr: null, display_number: '', error: null })
   const [busy, setBusy] = useState(false)
 
@@ -22,8 +22,8 @@ export function WhatsAppQrPanel({ base, onChange }) {
   useEffect(() => { refresh() }, [base])
   useEffect(() => {
     if (!LIVE.has(st.status)) return
-    const t = setInterval(refresh, 1200)
-    return () => clearInterval(t)
+    const id = setInterval(refresh, 1200)
+    return () => clearInterval(id)
   }, [st.status, base])
 
   async function run(path) {
@@ -40,14 +40,14 @@ export function WhatsAppQrPanel({ base, onChange }) {
   const connected = st.status === 'connected'
   const pairing = LIVE.has(st.status)
   const label = {
-    disconnected: isAr ? 'غير متصل' : 'Disconnected',
-    starting: isAr ? 'جارٍ البدء…' : 'Starting…',
-    qr: isAr ? 'بانتظار المسح' : 'Waiting for QR scan',
-    connecting: isAr ? 'جارٍ الاتصال…' : 'Connecting…',
-    connected: isAr ? 'متصل' : 'Connected',
-    reconnecting: isAr ? 'إعادة الاتصال…' : 'Reconnecting…',
-    logged_out: isAr ? 'تم تسجيل الخروج' : 'Logged out',
-    error: isAr ? 'خطأ' : 'Error',
+    disconnected: t('qr_disconnected'),
+    starting: t('qr_starting'),
+    qr: t('qr_waiting'),
+    connecting: t('qr_connecting'),
+    connected: t('qr_connected'),
+    reconnecting: t('qr_reconnecting'),
+    logged_out: t('qr_logged_out'),
+    error: t('qr_error'),
   }[st.status] || st.status
 
   return (
@@ -59,33 +59,29 @@ export function WhatsAppQrPanel({ base, onChange }) {
       {st.qr && (
         <div style={{ textAlign: 'center', marginBottom: 12 }}>
           <img src={st.qr} alt="WhatsApp QR" width={200} height={200} style={{ borderRadius: 12, background: '#fff' }} />
-          <p style={{ color: 'var(--mut)', fontSize: 12, marginTop: 8 }}>
-            {isAr
-              ? 'واتساب → الأجهزة المرتبطة → ربط جهاز → امسح الرمز'
-              : 'WhatsApp → Linked devices → Link a device → scan this QR'}
-          </p>
+          <p style={{ color: 'var(--mut)', fontSize: 12, marginTop: 8 }}>{t('qr_how_short')}</p>
         </div>
       )}
       {st.error && <p style={{ color: '#b45309', fontSize: 13, marginBottom: 8 }}>{st.error}</p>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {!connected && !pairing && (
           <button className="btn btn-g" disabled={busy} onClick={() => run('/start')}>
-            <Icon name="qr-code" size={15} />{isAr ? 'بدء رمز QR' : 'Start QR'}
+            <Icon name="qr-code" size={15} />{t('qr_start')}
           </button>
         )}
         {(st.status === 'qr' || st.status === 'error') && (
           <button className="btn btn-o" disabled={busy} onClick={() => run('/start')}>
-            <Icon name="refresh-cw" size={14} />{isAr ? 'تحديث' : 'Refresh QR'}
+            <Icon name="refresh-cw" size={14} />{t('qr_refresh')}
           </button>
         )}
         {(connected || st.status === 'reconnecting') && (
           <button className="btn btn-o" disabled={busy} onClick={() => run('/reconnect')}>
-            <Icon name="refresh-cw" size={14} />{isAr ? 'إعادة الاتصال' : 'Reconnect'}
+            <Icon name="refresh-cw" size={14} />{t('qr_reconnect')}
           </button>
         )}
         {st.status !== 'disconnected' && (
           <button className="btn btn-o" disabled={busy} onClick={() => run('/logout')}>
-            <Icon name="log-out" size={14} />{isAr ? 'قطع الاتصال' : 'Disconnect'}
+            <Icon name="log-out" size={14} />{t('qr_disconnect')}
           </button>
         )}
       </div>

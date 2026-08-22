@@ -14,7 +14,7 @@ import { Switch, useToast } from './ui'
  * editable until the user changes or disconnects them.
  */
 export function ConnectionForm({ channel, embedded = false }) {
-  const { isAr } = useLang()
+  const { t } = useLang()
   const toast = useToast()
   const [spec, setSpec] = useState(null)
   const [current, setCurrent] = useState(null)
@@ -50,23 +50,23 @@ export function ConnectionForm({ channel, embedded = false }) {
       const res = await apiPut(`/me/connections/${channel}`, { fields: form })
       const cs = await apiGet('/me/connections')
       setCurrent(cs.find((c) => c.channel === channel) || null)
-      toast(res.connected ? (isAr ? 'تم الحفظ — متصل ✓' : 'Saved — connected ✓') : (isAr ? 'تم الحفظ ✓' : 'Saved ✓'))
+      toast(res.connected ? t('toast_saved_connected') : t('toast_saved'))
     } catch {
-      toast(isAr ? 'فشل الحفظ' : 'Save failed')
+      toast(t('toast_save_failed'))
     } finally {
       setSaving(false)
     }
   }
 
   async function disconnect() {
-    if (!window.confirm(isAr ? 'حذف بيانات الاتصال؟' : 'Delete these connection credentials?')) return
+    if (!window.confirm(t('toast_delete_confirm'))) return
     try {
       await apiDelete(`/me/connections/${channel}`)
       const cs = await apiGet('/me/connections')
       setCurrent(cs.find((c) => c.channel === channel) || null)
       setForm({})
-      toast(isAr ? 'تم الحذف' : 'Disconnected')
-    } catch { toast(isAr ? 'فشل الحذف' : 'Delete failed') }
+      toast(t('toast_disconnected'))
+    } catch { toast(t('toast_delete_failed')) }
   }
 
   if (!spec || !spec[channel]) {
@@ -106,12 +106,12 @@ export function ConnectionForm({ channel, embedded = false }) {
                 type={shown[field.key] ? 'text' : 'password'}
                 value={form[field.key] || ''}
                 onChange={(e) => set(field.key, e.target.value)}
-                placeholder={isAr ? 'أدخل القيمة' : 'enter value'}
+                placeholder={t('enter_value')}
                 autoComplete="off"
                 style={{ paddingInlineEnd: 42 }}
               />
               <button type="button" onClick={() => toggle(field.key)} tabIndex={-1}
-                aria-label={shown[field.key] ? 'Hide' : 'Show'}
+                aria-label={shown[field.key] ? t('hide') : t('show')}
                 style={{ position: 'absolute', insetInlineEnd: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 0, padding: 4, cursor: 'pointer', color: 'var(--mut)', display: 'flex' }}>
                 <Icon name={shown[field.key] ? 'eye-off' : 'eye'} size={17} />
               </button>
@@ -127,7 +127,7 @@ export function ConnectionForm({ channel, embedded = false }) {
           <Icon name="save" size={16} />{saving ? <T k="saving" /> : <T k="conn_save" />}
         </button>
         {connected && (
-          <button className="btn btn-o" onClick={disconnect} title={isAr ? 'حذف' : 'Disconnect'}>
+          <button className="btn btn-o" onClick={disconnect} title={t('disconnect')}>
             <Icon name="trash-2" size={15} />
           </button>
         )}

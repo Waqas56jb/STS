@@ -17,7 +17,7 @@ import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
  *    so an admin can train the bot for any business from here.
  */
 export function ConnectionModal({ business, onClose }) {
-  const { isAr } = useAdminT()
+  const { t } = useAdminT()
   const toast = useToast()
   const [mode, setMode] = useState('conn') // 'conn' | 'train'
   const [spec, setSpec] = useState(null)
@@ -69,9 +69,9 @@ export function ConnectionModal({ business, onClose }) {
       const res = await apiPut(`/admin/businesses/${business.id}/connections/${channel}`, { fields: form })
       const cs = await apiGet(`/admin/businesses/${business.id}/connections`)
       setConns(cs)
-      toast(res.connected ? (isAr ? 'تم الحفظ — متصل ✓' : 'Saved — connected ✓') : (isAr ? 'تم الحفظ ✓' : 'Saved ✓'))
+      toast(res.connected ? t('toast_saved_connected') : t('toast_saved'))
     } catch {
-      toast(isAr ? 'فشل الحفظ' : 'Save failed')
+      toast(t('toast_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -83,18 +83,16 @@ export function ConnectionModal({ business, onClose }) {
         <button className="modal-x" onClick={onClose}><Icon name="x" /></button>
         <h3 style={{ marginBottom: 4 }}>{business.biz}</h3>
         <p style={{ color: 'var(--mut)', fontSize: 13, marginBottom: 14 }}>
-          {mode === 'conn'
-            ? (isAr ? 'أدخل مفاتيح الاتصال (تُحفظ مشفّرة)' : 'Enter connection keys (stored encrypted)')
-            : (isAr ? 'درّب روبوت المحادثة لهذا النشاط' : 'Train the chatbot for this business')}
+          {mode === 'conn' ? t('modal_conn_keys') : t('modal_train')}
         </p>
 
         {/* mode toggle */}
         <div className="conn-tabs" style={{ marginBottom: 14 }}>
           <button className={`conn-tab ${mode === 'conn' ? 'on' : ''}`} onClick={() => setMode('conn')}>
-            <Icon name="plug-zap" size={15} />{isAr ? 'الاتصالات' : 'Connections'}
+            <Icon name="plug-zap" size={15} />{t('conn_tab')}
           </button>
           <button className={`conn-tab ${mode === 'train' ? 'on' : ''}`} onClick={() => setMode('train')}>
-            <Icon name="brain" size={15} />{isAr ? 'التدريب' : 'Training'}
+            <Icon name="brain" size={15} />{t('train_tab')}
           </button>
         </div>
 
@@ -122,7 +120,7 @@ export function ConnectionModal({ business, onClose }) {
               <>
                 <div className="conn-status">
                   <span className={`badge ${current?.connected ? 'b-ok' : 'b-warn'}`}>
-                    {current?.connected ? (isAr ? 'متصل' : 'CONNECTED') : (isAr ? 'غير متصل' : 'NOT CONNECTED')}
+                    {current?.connected ? t('connected') : t('not_connected')}
                   </span>
                   <span style={{ fontSize: 12, color: 'var(--mut)' }}>{spec[channel].label}</span>
                 </div>
@@ -130,7 +128,7 @@ export function ConnectionModal({ business, onClose }) {
                 {channel === 'whatsapp' && (
                   <div className="conn-tabs" style={{ margin: '8px 0 12px' }}>
                     <button className={`conn-tab ${waProvider === 'qr' ? 'on' : ''}`} onClick={() => setWaProvider('qr')}>
-                      {isAr ? 'رمز QR' : 'QR / Linked Device'}
+                      {t('conn_qr_tab')}
                     </button>
                     <button className={`conn-tab ${waProvider === 'cloud_api' ? 'on' : ''}`} onClick={() => setWaProvider('cloud_api')}>
                       Meta Cloud API
@@ -155,7 +153,7 @@ export function ConnectionModal({ business, onClose }) {
                         type={field.secret ? 'password' : 'text'}
                         value={form[field.key] || ''}
                         onChange={(e) => set(field.key, e.target.value)}
-                        placeholder={field.secret ? (current?.fields?.[field.key] || (isAr ? 'أدخل القيمة' : 'enter value')) : ''}
+                        placeholder={field.secret ? (current?.fields?.[field.key] || t('enter_value')) : ''}
                         autoComplete="off"
                       />
                     )}
@@ -166,12 +164,10 @@ export function ConnectionModal({ business, onClose }) {
                   <>
                     <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }} onClick={save} disabled={saving}>
                       <Icon name="save" size={16} />
-                      {saving ? (isAr ? 'جارٍ الحفظ…' : 'Saving…') : (isAr ? 'حفظ الاتصال' : 'Save connection')}
+                      {saving ? t('conn_saving') : t('conn_save')}
                     </button>
                     <p style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 10, textAlign: 'center' }}>
-                      {isAr
-                        ? 'اترك حقل السر فارغاً للإبقاء على القيمة المحفوظة.'
-                        : 'Leave a secret field blank to keep the stored value.'}
+                      {t('conn_secret_blank_hint')}
                     </p>
                   </>
                 )}

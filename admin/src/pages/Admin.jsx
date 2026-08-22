@@ -63,7 +63,7 @@ function AdminInner({ onLogout }) {
   }
   useEffect(() => { reload() }, [])
 
-  const done = () => toast(isAr ? 'تم ✓' : 'Done ✓')
+  const done = () => toast(t('toast_done'))
 
   function go(v) {
     setView(v)
@@ -157,7 +157,7 @@ function AdminInner({ onLogout }) {
             </button>
           ))}
           <div className="side-foot">
-            <button className="nav-item" onClick={toggle}><Icon name="languages" /><span>{isAr ? 'English' : 'عربي'}</span></button>
+            <button className="nav-item" onClick={toggle}><Icon name="languages" /><span>{isAr ? t('lang_switch_from_ar') : t('lang_switch')}</span></button>
             <button className="nav-item" onClick={logout}><Icon name="log-out" /><span>{t('n_out')}</span></button>
           </div>
         </aside>

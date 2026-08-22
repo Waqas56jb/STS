@@ -10,7 +10,7 @@ import { chIcon } from '../../data/demo'
  * thread's messages on open, and posts human replies / mode changes back.
  */
 export function Inbox() {
-  const { t, lang, isAr } = useLang()
+  const { t } = useLang()
   const [convs, setConvs] = useState([])
   const [activeId, setActiveId] = useState(null)
   const [filter, setFilter] = useState('all')
@@ -84,7 +84,7 @@ export function Inbox() {
     setConvs((cs) =>
       cs.map((c) =>
         c.id === activeId
-          ? { ...c, prev: text, msgs: [...(c.msgs || []), { d: 'out', who: isAr ? 'أنت' : 'You', t: text }] }
+          ? { ...c, prev: text, msgs: [...(c.msgs || []), { d: 'out', who: t('you'), t: text }] }
           : c,
       ),
     )
@@ -94,8 +94,8 @@ export function Inbox() {
 
   const filters = [
     { f: 'all', label: t('f_all') },
-    { f: 'whatsapp', label: 'WhatsApp' },
-    { f: 'instagram', label: 'Instagram' },
+    { f: 'whatsapp', label: t('ch_whatsapp') },
+    { f: 'instagram', label: t('ch_instagram') },
     { f: 'voice', label: t('f_calls') },
     { f: 'web', label: t('f_web') },
   ]
@@ -139,7 +139,7 @@ export function Inbox() {
           ))}
           {!loading && list.length === 0 && (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--mut)', fontSize: 13 }}>
-              {isAr ? 'لا توجد محادثات بعد' : 'No conversations yet'}
+              {t('ix_empty')}
             </div>
           )}
         </div>
@@ -150,7 +150,7 @@ export function Inbox() {
         <div className="thread-head">
           {active && (
             <>
-              <button className="back" onClick={() => setMobileThread(false)} aria-label="Back to conversations">
+              <button className="back" onClick={() => setMobileThread(false)} aria-label={t('ix_back')}>
                 <Icon name="arrow-left" size={18} />
               </button>
               <span className={`ch ${ci(active.ch)[0]}`}>
@@ -164,7 +164,7 @@ export function Inbox() {
                 <div className="mode">
                   <button className={active.mode === 'ai' ? 'on' : ''} onClick={() => setMode(active.id, 'ai')}>AI</button>
                   <button className={active.mode === 'human' ? 'on' : ''} onClick={() => setMode(active.id, 'human')}>
-                    {lang === 'ar' ? 'موظف' : 'Human'}
+                    {t('human')}
                   </button>
                 </div>
               </div>
@@ -201,10 +201,10 @@ export function Inbox() {
             </div>
             <h4>{active.name}</h4>
             <div className="tagline">{active.phone}</div>
-            <div className="kv"><span>{isAr ? 'القناة' : 'Channel'}</span><span style={{ textTransform: 'capitalize' }}>{active.ch}</span></div>
-            <div className="kv"><span>{isAr ? 'عميل منذ' : 'Customer since'}</span><span>{active.since}</span></div>
-            <div className="kv"><span>{isAr ? 'الطلبات' : 'Orders'}</span><span>{active.orders}</span></div>
-            <div className="kv"><span>{isAr ? 'الوضع' : 'Mode'}</span><span>{active.mode === 'ai' ? 'AI' : 'Human'}</span></div>
+            <div className="kv"><span>{t('ix_channel')}</span><span style={{ textTransform: 'capitalize' }}>{active.ch}</span></div>
+            <div className="kv"><span>{t('ix_since')}</span><span>{active.since}</span></div>
+            <div className="kv"><span>{t('ix_orders')}</span><span>{active.orders}</span></div>
+            <div className="kv"><span>{t('ix_mode')}</span><span>{active.mode === 'ai' ? t('mode_ai') : t('human')}</span></div>
           </>
         )}
       </div>

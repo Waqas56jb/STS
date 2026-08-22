@@ -5,6 +5,7 @@
  * the current language from LangContext.
  */
 import { useLang } from './LangContext'
+import { commonEn, commonAr } from './common.js'
 
 export const adminEn = {
   adm_tag: 'ADMIN CONTROL',
@@ -388,10 +389,14 @@ export const adminAr = {
   lg_hint: 'الوصول مقصور على فريق STS.',
 }
 
+Object.assign(adminEn, commonEn)
+Object.assign(adminAr, commonAr)
+
 /** Hook returning a translate fn bound to the admin dictionary + current lang. */
 export function useAdminT() {
   const { lang, isAr, dir, toggle } = useLang()
   const dict = lang === 'ar' ? adminAr : adminEn
   const t = (k) => (dict[k] !== undefined ? dict[k] : adminEn[k] !== undefined ? adminEn[k] : k)
-  return { t, lang, isAr, dir, toggle }
+  const locale = lang === 'ar' ? 'ar' : 'en-GB'
+  return { t, lang, isAr, dir, toggle, locale }
 }

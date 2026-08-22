@@ -10,7 +10,7 @@ const LIVE = new Set(['starting', 'qr', 'connecting', 'reconnecting'])
  * `base` is the API prefix, e.g. /me/whatsapp/qr
  */
 export function WhatsAppQrPanel({ base = '/me/whatsapp/qr', onChange }) {
-  const { isAr } = useLang()
+  const { t } = useLang()
   const [st, setSt] = useState({ status: 'disconnected', qr: null, display_number: '', error: null })
   const [busy, setBusy] = useState(false)
 
@@ -50,14 +50,14 @@ export function WhatsAppQrPanel({ base = '/me/whatsapp/qr', onChange }) {
   const connected = st.status === 'connected'
   const pairing = LIVE.has(st.status)
   const statusLabel = {
-    disconnected: isAr ? 'غير متصل' : 'Disconnected',
-    starting: isAr ? 'جارٍ البدء…' : 'Starting…',
-    qr: isAr ? 'بانتظار المسح' : 'Waiting for QR scan',
-    connecting: isAr ? 'جارٍ الاتصال…' : 'Connecting…',
-    connected: isAr ? 'متصل' : 'Connected',
-    reconnecting: isAr ? 'إعادة الاتصال…' : 'Reconnecting…',
-    logged_out: isAr ? 'تم تسجيل الخروج' : 'Logged out',
-    error: isAr ? 'خطأ' : 'Error',
+    disconnected: t('qr_disconnected'),
+    starting: t('qr_starting'),
+    qr: t('qr_waiting'),
+    connecting: t('qr_connecting'),
+    connected: t('qr_connected'),
+    reconnecting: t('qr_reconnecting'),
+    logged_out: t('qr_logged_out'),
+    error: t('qr_error'),
   }[st.status] || st.status
 
   return (

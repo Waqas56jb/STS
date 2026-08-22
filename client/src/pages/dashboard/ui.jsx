@@ -24,19 +24,19 @@ export function Switch({ defaultChecked = false, checked, onChange }) {
 const ToastContext = createContext(() => {})
 
 export function ToastProvider({ children }) {
-  const { isAr } = useLang()
+  const { t } = useLang()
   const [show, setShow] = useState(false)
   const [msg, setMsg] = useState('')
   const timer = useRef(null)
 
   const toast = useCallback(
     (custom) => {
-      setMsg(custom || (isAr ? 'تم الحفظ ✓' : 'Saved ✓'))
+      setMsg(custom || t('toast_saved'))
       setShow(true)
       clearTimeout(timer.current)
       timer.current = setTimeout(() => setShow(false), 1800)
     },
-    [isAr],
+    [t],
   )
 
   return (

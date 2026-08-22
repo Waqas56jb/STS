@@ -50,7 +50,7 @@ const NAV_LINKS = [
 /* ---------------- Nav ---------------- */
 function Nav({ onLogin }) {
   const scrolled = useScrolled(30)
-  const { toggle, isAr } = useLang()
+  const { toggle, isAr, t } = useLang()
   const [menuOpen, setMenuOpen] = useState(false)
   useLockBodyScroll(menuOpen)
 
@@ -68,7 +68,7 @@ function Nav({ onLogin }) {
           ))}
         </div>
         <div className="nav-cta">
-          <button className="lang-sw nav-desktop" onClick={toggle}>{isAr ? 'EN' : 'عربي'}</button>
+          <button className="lang-sw nav-desktop" onClick={toggle}>{isAr ? t('lang_switch_from_ar') : t('lang_switch')}</button>
           <button className="btn btn-ghost nav-desktop" style={{ padding: '9px 20px' }} onClick={onLogin}>
             <T k="nav_login" />
           </button>
@@ -102,7 +102,7 @@ function Nav({ onLogin }) {
           <button className="btn btn-ghost" onClick={() => { close(); onLogin() }}>
             <T k="nav_login" />
           </button>
-          <button className="lang-sw mm-lang" onClick={toggle}>{isAr ? 'English' : 'العربية'}</button>
+          <button className="lang-sw mm-lang" onClick={toggle}>{isAr ? t('lang_switch_from_ar') : t('lang_switch_ar_full')}</button>
         </div>
       </div>
     </nav>
@@ -296,11 +296,11 @@ function LoginModal({ open, onClose }) {
     } catch (ex) {
       // Real API only — no demo fallback. Show the server's error.
       if (ex.status === 403) {
-        setErr(isAr ? 'الحساب موقوف — تواصل مع الدعم' : ex.message || 'Account suspended')
+        setErr(isAr ? t('err_suspended') : (ex.message || t('err_suspended')))
       } else if (ex.status === 401) {
-        setErr(isAr ? 'بيانات الدخول غير صحيحة' : 'Invalid credentials')
+        setErr(t('err_invalid'))
       } else {
-        setErr(isAr ? 'تعذّر الاتصال بالخادم — حاول مرة أخرى' : 'Cannot reach the server — please try again')
+        setErr(t('err_server'))
       }
     }
   }
@@ -320,7 +320,7 @@ function LoginModal({ open, onClose }) {
               <button
                 type="button"
                 onClick={() => setShowPw((s) => !s)}
-                aria-label={showPw ? (isAr ? 'إخفاء كلمة المرور' : 'Hide password') : (isAr ? 'إظهار كلمة المرور' : 'Show password')}
+                aria-label={showPw ? t('hide_password') : t('show_password')}
                 style={{ position: 'absolute', insetInlineEnd: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 0, padding: 4, cursor: 'pointer', color: 'var(--mut)', display: 'flex', alignItems: 'center' }}
               >
                 <Icon name={showPw ? 'eye-off' : 'eye'} size={18} />

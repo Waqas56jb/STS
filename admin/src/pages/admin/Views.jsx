@@ -36,7 +36,7 @@ export function Overview({ summary = {}, analytics }) {
 
 /* ===================== ACCESS REQUESTS ===================== */
 export function Requests({ requests, onApprove, onReject }) {
-  const { t, isAr } = useAdminT()
+  const { t } = useAdminT()
   return (
     <div className="card">
       <h3><Icon name="user-plus" /><span>{t('rq_new')}</span></h3>
@@ -63,7 +63,7 @@ export function Requests({ requests, onApprove, onReject }) {
           </div>
         ))
       ) : (
-        <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40 }}>{isAr ? 'لا توجد طلبات جديدة 🎉' : 'No new requests 🎉'}</div>
+        <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40 }}>{t('no_requests')}</div>
       )}
     </div>
   )
@@ -71,7 +71,7 @@ export function Requests({ requests, onApprove, onReject }) {
 
 /* ===================== USERS ===================== */
 export function Users({ users, onToggle, onConnections, onCredentials }) {
-  const { t, isAr } = useAdminT()
+  const { t } = useAdminT()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
 
@@ -111,10 +111,10 @@ export function Users({ users, onToggle, onConnections, onCredentials }) {
                 <td><b>{u.mrr} KWD</b></td>
                 <td><span className={`badge ${stBadge(u.status)}`}>{t(u.status === 'suspended' ? 'susp' : u.status).toUpperCase()}</span></td>
                 <td style={{ whiteSpace: 'nowrap' }}>
-                  <button className="btn btn-conn" style={{ padding: '6px 11px' }} onClick={() => onConnections?.(u)} title={isAr ? 'الاتصالات' : 'Connections'}>
+                  <button className="btn btn-conn" style={{ padding: '6px 11px' }} onClick={() => onConnections?.(u)} title={t('connections')}>
                     <Icon name="plug-zap" size={14} />
                   </button>
-                  <button className="btn btn-o" style={{ padding: '6px 11px' }} onClick={() => onCredentials?.(u)} title={isAr ? 'بيانات الدخول' : 'Credentials'}>
+                  <button className="btn btn-o" style={{ padding: '6px 11px' }} onClick={() => onCredentials?.(u)} title={t('credentials')}>
                     <Icon name="key-round" size={14} />
                   </button>
                   <button className={`btn ${u.status === 'suspended' ? 'btn-g' : 'btn-r'}`} style={{ padding: '6px 11px' }} onClick={() => onToggle(u.id)} title={u.status === 'suspended' ? t('activate') : t('suspend')}>
@@ -234,7 +234,7 @@ export function Plans() {
 
 /* ===================== ANALYTICS ===================== */
 export function Analytics({ analytics: passed }) {
-  const { t, isAr } = useAdminT()
+  const { t } = useAdminT()
   const [self, setSelf] = useState(null)
   // use the data passed from the shell, else fetch it (deep-linked view)
   useEffect(() => { if (!passed) apiGet('/admin/analytics').then(setSelf).catch(() => {}) }, [passed])
@@ -259,7 +259,7 @@ export function Analytics({ analytics: passed }) {
           </table>
           {top.length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 24, fontSize: 13 }}>
-              {isAr ? 'لا توجد بيانات بعد' : 'No data yet'}
+              {t('no_data')}
             </div>
           )}
         </div>
@@ -277,7 +277,7 @@ const KEY_FIELDS = [
 ]
 
 export function Settings() {
-  const { t, isAr } = useAdminT()
+  const { t } = useAdminT()
   const toast = useToast()
   // `s` holds server values (secrets arrive masked); `sec` holds new secret input
   const [s, setS] = useState({ support_whatsapp: '', support_email: '', currency: 'KWD' })
@@ -290,16 +290,16 @@ export function Settings() {
   async function savePlatform() {
     try {
       await apiPut('/admin/settings', { support_whatsapp: s.support_whatsapp, support_email: s.support_email, currency: s.currency })
-      toast(isAr ? 'تم الحفظ ✓' : 'Saved ✓')
-    } catch { toast(isAr ? 'فشل الحفظ' : 'Save failed') }
+      toast(t('toast_saved'))
+    } catch { toast(t('toast_save_failed')) }
   }
   async function saveKeys() {
     try {
       await apiPut('/admin/settings', sec) // only non-blank secrets are stored (server merges)
       setSec({ meta_app_id: '', openai_key: '', twilio_sid: '', elevenlabs_key: '' })
       await load()
-      toast(isAr ? 'تم الحفظ ✓' : 'Saved ✓')
-    } catch { toast(isAr ? 'فشل الحفظ' : 'Save failed') }
+      toast(t('toast_saved'))
+    } catch { toast(t('toast_save_failed')) }
   }
 
   return (
@@ -327,14 +327,14 @@ export function Settings() {
               type="password"
               value={sec[f.k]}
               onChange={(e) => setSec((x) => ({ ...x, [f.k]: e.target.value }))}
-              placeholder={s[f.k] || (isAr ? 'غير مضبوط' : 'not set')}
+              placeholder={s[f.k] || t('not_set')}
               autoComplete="off"
             />
           </div>
         ))}
         <button className="btn btn-p" onClick={saveKeys}><Icon name="save" size={16} />{t('save')}</button>
         <p style={{ fontSize: 11.5, color: 'var(--mut)', marginTop: 10 }}>
-          {isAr ? 'اترك الحقل فارغاً للإبقاء على المفتاح المحفوظ. المفاتيح تُحفظ مشفّرة.' : 'Leave a field blank to keep the stored key. Keys are stored encrypted.'}
+          {t('keys_hint')}
         </p>
       </div>
     </div>

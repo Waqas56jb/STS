@@ -127,7 +127,7 @@ export default function Dashboard() {
             ),
           )}
           <div className="side-foot">
-            <button className="nav-item" onClick={toggle}><Icon name="languages" /><span>{isAr ? 'English' : 'عربي'}</span></button>
+            <button className="nav-item" onClick={toggle}><Icon name="languages" /><span>{isAr ? t('lang_switch_from_ar') : t('lang_switch')}</span></button>
             <button className="nav-item" onClick={logout}><Icon name="log-out" /><span><T k="n_out" /></span></button>
           </div>
         </aside>

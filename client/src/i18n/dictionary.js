@@ -1,3 +1,5 @@
+import { commonEn, commonAr } from './common.js'
+
 /**
  * Bilingual dictionary (EN / AR), ported verbatim from the original
  * index.html + client.html `AR` maps and their English source strings.
@@ -817,5 +819,8 @@ export const ar = {
   se_notif: 'إشعارات البريد',
   se_notifp: 'ملخص يومي وتنبيهات التحويل.',
 }
+
+Object.assign(en, commonEn)
+Object.assign(ar, commonAr)
 
 export const dictionaries = { en, ar }

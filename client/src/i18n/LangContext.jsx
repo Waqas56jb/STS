@@ -25,10 +25,12 @@ export function LangProvider({ children }) {
     const dict = dictionaries[lang] || en
     // Translate a key, falling back to English, then to the key itself.
     const t = (key) => (dict[key] !== undefined ? dict[key] : en[key] !== undefined ? en[key] : key)
+    const locale = lang === 'ar' ? 'ar' : 'en-GB'
     return {
       lang,
       dir: lang === 'ar' ? 'rtl' : 'ltr',
       isAr: lang === 'ar',
+      locale,
       t,
       toggle: () => setLang((l) => (l === 'en' ? 'ar' : 'en')),
       setLang,

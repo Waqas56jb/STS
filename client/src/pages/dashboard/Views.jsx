@@ -254,7 +254,7 @@ function useSessionUser() {
 /* ===================== SETTINGS ===================== */
 export function SettingsView() {
   const toast = useToast()
-  const { t, isAr } = useLang()
+  const { t } = useLang()
   const [p, setP] = useState({ business_name: '', email: '', hours: '', language: 'auto' })
   const [pw, setPw] = useState({ current: '', next: '' })
   useEffect(() => { apiGet('/me/profile').then((d) => d && setP((s) => ({ ...s, ...d }))).catch(() => {}) }, [])
@@ -267,12 +267,12 @@ export function SettingsView() {
     } catch { toast(t('save_failed')) }
   }
   async function changePw() {
-    if (!pw.current || pw.next.trim().length < 4) { toast(isAr ? 'كلمة مرور قصيرة جداً' : 'Password too short'); return }
+    if (!pw.current || pw.next.trim().length < 4) { toast(t('toast_pw_short')); return }
     try {
       await apiPut('/me/password', { current: pw.current, next: pw.next.trim() })
       setPw({ current: '', next: '' })
-      toast(isAr ? 'تم تحديث كلمة المرور ✓' : 'Password updated ✓')
-    } catch { toast(isAr ? 'كلمة المرور الحالية غير صحيحة' : 'Current password is incorrect') }
+      toast(t('toast_pw_updated'))
+    } catch { toast(t('toast_pw_wrong')) }
   }
 
   return (

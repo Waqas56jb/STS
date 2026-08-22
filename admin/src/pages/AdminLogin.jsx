@@ -41,7 +41,7 @@ export function AdminLogin({ onSuccess }) {
       if (ex.status === 401 || ex.status === 403) {
         setErr(t('lg_invalid'))
       } else {
-        setErr(isAr ? 'تعذّر الاتصال بالخادم' : 'Cannot reach the server')
+        setErr(t('err_server'))
       }
       setBusy(false)
     }
@@ -72,7 +72,7 @@ export function AdminLogin({ onSuccess }) {
       <main className="al-form-wrap">
         <button type="button" className="al-lang" onClick={toggle}>
           <Icon name="languages" size={16} />
-          {isAr ? 'English' : 'العربية'}
+          {isAr ? t('lang_switch_from_ar') : t('lang_switch_ar_full')}
         </button>
 
         <form className="al-card" onSubmit={submit}>
@@ -115,7 +115,7 @@ export function AdminLogin({ onSuccess }) {
               <button
                 type="button"
                 onClick={() => setShowPw((s) => !s)}
-                aria-label={showPw ? (isAr ? 'إخفاء كلمة المرور' : 'Hide password') : (isAr ? 'إظهار كلمة المرور' : 'Show password')}
+                aria-label={showPw ? t('hide_password') : t('show_password')}
                 style={{ position: 'absolute', insetInlineEnd: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 0, padding: 4, cursor: 'pointer', color: 'var(--mut)', display: 'flex', alignItems: 'center' }}
               >
                 <Icon name={showPw ? 'eye-off' : 'eye'} size={18} />

@@ -83,7 +83,7 @@ export function TrainingStudio({
   defaultChannel = 'whatsapp',
   compact = false,
 }) {
-  const { t, isAr } = useLang()
+  const { t } = useLang()
   const toast = useToast()
   const fileRef = useRef(null)
   const [agent, setAgent] = useState(defaultChannel)
@@ -408,7 +408,6 @@ export function TrainingStudio({
         <EditModal
           entry={editing}
           t={t}
-          isAr={isAr}
           onClose={() => setEditing(null)}
           onSaved={async () => { await withLearn(async () => { await load() }) }}
           update={endpoints.updateKnowledge}
@@ -437,7 +436,7 @@ function LearnOverlay({ open, done, agentName, cls, t }) {
   )
 }
 
-function EditModal({ entry, t, isAr, onClose, onSaved, update }) {
+function EditModal({ entry, t, onClose, onSaved, update }) {
   const toast = useToast()
   const [f, setF] = useState({
     title: entry.title || '', content: entry.content || '',
@@ -471,7 +470,7 @@ function EditModal({ entry, t, isAr, onClose, onSaved, update }) {
           </select>
         </div>
         <button className="btn btn-g" style={{ width: '100%', justifyContent: 'center' }} onClick={save}>
-          <Icon name="save" size={16} />{isAr ? 'حفظ التعديلات' : 'Save changes'}
+          <Icon name="save" size={16} /><T k="save_changes" />
         </button>
       </div>
     </div>
