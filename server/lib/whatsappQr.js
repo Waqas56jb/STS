@@ -167,11 +167,23 @@ function displayFromJid(jid) {
   return digits ? `+${digits}` : ''
 }
 
+/** Map a stored handle to a JID WhatsApp will accept (phone or LID). */
+export function toWhatsAppJid(to) {
+  const raw = String(to || '').trim()
+  if (raw.includes('@')) return raw
+  const digits = normalizeWaHandle(raw)
+  if (!digits) return ''
+  // LIDs are long numeric ids; real E.164 numbers are typically ≤ 12–15 digits
+  if (digits.length >= 13) return `${digits}@lid`
+  return `${digits}@s.whatsapp.net`
+}
+
 export async function sendQrText(businessId, to, text) {
   const s = sessions.get(businessId)
   if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
-  const dest = String(to || '').includes('@') ? String(to) : `${normalizeWaHandle(to)}@s.whatsapp.net`
-  if (!dest || dest.startsWith('@')) throw new Error('Invalid WhatsApp recipient')
+  const dest = toWhatsAppJid(to)
+  if (!dest) throw new Error('Invalid WhatsApp recipient')
+  log(`business=${businessId} send → ${dest}`)
   await s.sock.sendMessage(dest, { text: String(text).slice(0, 4096) })
 }
 
@@ -306,20 +318,17 @@ async function handleBaileysMessage(businessId, m) {
   if (!text) return
 
   const alt = m.key.remoteJidAlt || m.key.senderPn || ''
-  const from =
-    normalizeWaHandle(alt.includes('@s.whatsapp.net') || alt.includes('@c.us') ? alt : '') ||
-    (jid.includes('@s.whatsapp.net') || jid.includes('@c.us') ? normalizeWaHandle(jid) : '') ||
-    normalizeWaHandle(jid) ||
-    jid
+  const replyJid = jid || alt
+  const from = replyJid || normalizeWaHandle(alt) || normalizeWaHandle(jid)
   if (!from) return
-  const name = m.pushName || from
+  const name = m.pushName || normalizeWaHandle(alt || jid) || from
   const messageId = `qr:${businessId}:${m.key.id}`
   if (!inboundHandler) {
     log(`business=${businessId} no inbound handler`)
     return
   }
-  log(`business=${businessId} incoming message`)
-  await inboundHandler(businessId, { from, jid, name, text, messageId })
+  log(`business=${businessId} incoming from=${from}`)
+  await inboundHandler(businessId, { from, jid: replyJid, name, text, messageId })
 }
 
 function wipeSessionDir(businessId) {
