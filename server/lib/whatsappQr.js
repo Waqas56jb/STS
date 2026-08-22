@@ -123,15 +123,28 @@ async function loadBaileys() {
   }
 }
 
-function extractText(message) {
-  if (!message) return ''
+function unwrapMessage(message) {
+  if (!message) return {}
+  return (
+    message.ephemeralMessage?.message ||
+    message.viewOnceMessage?.message ||
+    message.viewOnceMessageV2?.message ||
+    message.viewOnceMessageV2Extension?.message ||
+    message.documentWithCaptionMessage?.message ||
+    message.deviceSentMessage?.message ||
+    message
+  )
+}
+
+function extractText(raw) {
+  const message = unwrapMessage(raw)
   return (
     message.conversation ||
     message.extendedTextMessage?.text ||
-    message.ephemeralMessage?.message?.conversation ||
-    message.ephemeralMessage?.message?.extendedTextMessage?.text ||
     message.imageMessage?.caption ||
     message.videoMessage?.caption ||
+    message.buttonsResponseMessage?.selectedDisplayText ||
+    message.listResponseMessage?.title ||
     ''
   )
 }
@@ -157,8 +170,9 @@ function displayFromJid(jid) {
 export async function sendQrText(businessId, to, text) {
   const s = sessions.get(businessId)
   if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
-  const jid = `${normalizeWaHandle(to)}@s.whatsapp.net`
-  await s.sock.sendMessage(jid, { text: String(text).slice(0, 4096) })
+  const dest = String(to || '').includes('@') ? String(to) : `${normalizeWaHandle(to)}@s.whatsapp.net`
+  if (!dest || dest.startsWith('@')) throw new Error('Invalid WhatsApp recipient')
+  await s.sock.sendMessage(dest, { text: String(text).slice(0, 4096) })
 }
 
 export async function startQrSession(businessId, { restore = false } = {}) {
@@ -261,7 +275,7 @@ export async function startQrSession(businessId, { restore = false } = {}) {
     })
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify' && type !== 'append') return
+      if (type === 'prepend') return
       for (const m of messages || []) {
         try {
           await handleBaileysMessage(businessId, m)
@@ -284,20 +298,28 @@ async function handleBaileysMessage(businessId, m) {
 
   const message = m.message || {}
   const text = extractText(message).trim()
-  const kind = mediaKind(message)
+  const kind = mediaKind(unwrapMessage(message))
   if (!text && kind) {
     log(`business=${businessId} skipped ${kind} (MVP text only)`)
     return
   }
   if (!text) return
 
-  const from = normalizeWaHandle(jid)
+  const alt = m.key.remoteJidAlt || m.key.senderPn || ''
+  const from =
+    normalizeWaHandle(alt.includes('@s.whatsapp.net') || alt.includes('@c.us') ? alt : '') ||
+    (jid.includes('@s.whatsapp.net') || jid.includes('@c.us') ? normalizeWaHandle(jid) : '') ||
+    normalizeWaHandle(jid) ||
+    jid
   if (!from) return
   const name = m.pushName || from
   const messageId = `qr:${businessId}:${m.key.id}`
-  if (!inboundHandler) return
-  await inboundHandler(businessId, { from, name, text, messageId })
+  if (!inboundHandler) {
+    log(`business=${businessId} no inbound handler`)
+    return
+  }
   log(`business=${businessId} incoming message`)
+  await inboundHandler(businessId, { from, jid, name, text, messageId })
 }
 
 function wipeSessionDir(businessId) {

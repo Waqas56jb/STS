@@ -203,14 +203,19 @@ async function handleInboundWhatsApp(businessId, creds, msg) {
 
   const history = prior.reverse().map((h) => ({ role: h.direction === 'in' ? 'user' : 'assistant', content: h.body }))
   const reply = await generateReply({ businessId, businessName: biz?.name, channel: 'whatsapp', userText: msg.text, history })
+  if (!reply) return
 
-  await sendWhatsAppByProvider({
-    provider: resolveWhatsAppProvider(creds),
-    businessId,
-    to: msg.from,
-    text: reply,
-    creds,
-  })
+  try {
+    await sendWhatsAppByProvider({
+      provider: resolveWhatsAppProvider(creds),
+      businessId,
+      to: msg.jid || msg.from,
+      text: reply,
+      creds,
+    })
+  } catch (e) {
+    console.error('[WhatsApp] AI send failed:', e.message)
+  }
   await pool.query(
     `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out','ai',$3)`,
     [conv.id, businessId, reply],

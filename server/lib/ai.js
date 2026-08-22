@@ -61,7 +61,10 @@ export async function generateReply({ businessId, businessName, channel = 'whats
   ])
 
   const fallback = bot?.greeting || 'Thanks for your message! Our team will get back to you shortly.'
-  if (!key) return fallback // no LLM configured → safe templated reply
+  if (!key) {
+    console.error('OpenAI key missing — using greeting fallback')
+    return fallback
+  }
 
   const messages = [
     { role: 'system', content: buildSystemPrompt({ businessName, bot, kb }) },
