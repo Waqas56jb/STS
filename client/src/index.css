@@ -2106,9 +2106,14 @@ html[dir='rtl'] .dash th {
   transition: 0.2s;
   cursor: pointer;
 }
-.dash .drop:hover {
+.dash .drop:hover,
+.dash .drop.over {
   border-color: var(--lagoon);
   background: #f7fdfb;
+}
+.dash .drop.busy {
+  pointer-events: none;
+  opacity: 0.7;
 }
 .dash .chart-box {
   position: relative;

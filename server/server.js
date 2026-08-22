@@ -13,6 +13,8 @@ import {
   restoreQrSessions, setQrInboundHandler, qrEnabled, businessAllowsWhatsApp,
 } from './lib/whatsappQr.js'
 import { generateReply } from './lib/ai.js'
+import multer from 'multer'
+import { extractDocumentText, isSupportedTrainingFile } from './lib/extractText.js'
 import { twimlStream, twilioCreateCall, attachVoiceBridge } from './lib/voice.js'
 import http from 'node:http'
 import { WebSocketServer } from 'ws'
@@ -491,6 +493,39 @@ app.post('/api/knowledge', auth, wrap(async (req, res) => {
     `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
      values ($1,$2,$3,$4,$5,$6,$7,'trained') returning ${KB_COLS}`,
     [biz(req), type || 'qa', title, content || null, source_url || null, meta || null, kbChannel(channel)],
+  )
+  res.status(201).json(row)
+}))
+
+const kbUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (isSupportedTrainingFile(file.originalname, file.mimetype)) return cb(null, true)
+    cb(new Error('Unsupported file type. Use PDF, DOCX, XLSX, or TXT.'))
+  },
+})
+
+app.post('/api/knowledge/upload', auth, (req, res, next) => {
+  kbUpload.single('file')(req, res, (err) => {
+    if (!err) return next()
+    const tooBig = err.code === 'LIMIT_FILE_SIZE'
+    res.status(400).json({ error: tooBig ? 'File too large (max 10 MB)' : (err.message || 'Upload failed') })
+  })
+}, wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'file required' })
+  let text
+  try {
+    text = await extractDocumentText(req.file.buffer, req.file.originalname, req.file.mimetype)
+  } catch (e) {
+    return res.status(400).json({ error: e.message || 'Could not read file' })
+  }
+  const title = String(req.body?.title || req.file.originalname || 'Uploaded document').slice(0, 200)
+  const sizeKb = Math.max(1, Math.round(req.file.size / 1024))
+  const row = await one(
+    `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
+     values ($1,'file',$2,$3,null,$4,$5,'trained') returning ${KB_COLS}`,
+    [biz(req), title, text, `${req.file.originalname} · ${sizeKb} KB`, kbChannel(req.body?.channel)],
   )
   res.status(201).json(row)
 }))

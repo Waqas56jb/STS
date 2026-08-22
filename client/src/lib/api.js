@@ -91,6 +91,24 @@ export function apiPostAuth(path, body) {
   return apiPost(path, body, { auth: true })
 }
 
+/** Multipart upload (do not set Content-Type — the browser sets the boundary). */
+export async function apiUpload(path, file, fields = {}) {
+  const fd = new FormData()
+  fd.append('file', file)
+  for (const [k, v] of Object.entries(fields)) {
+    if (v != null) fd.append(k, String(v))
+  }
+  const t = token()
+  const res = await fetch(API + path, {
+    method: 'POST',
+    headers: t ? { Authorization: 'Bearer ' + t } : {},
+    body: fd,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Upload failed')
+  return data
+}
+
 /* ---- auth helpers (localStorage, matching the original keys) ---- */
 export function saveSession({ token, user }) {
   if (token) localStorage.setItem('sts_token', token)

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { T, useLang } from '../../i18n/LangContext'
-import { WHATSAPP, apiGet, apiPut, apiPostAuth, apiDelete, getUser } from '../../lib/api'
+import { WHATSAPP, apiGet, apiPut, apiPostAuth, apiDelete, apiUpload, getUser } from '../../lib/api'
 import { Switch, useToast } from './ui'
 import { ConnectionForm, BotSettings } from './ConnectionForm'
 import { WhatsAppQrPanel } from './WhatsAppQrPanel'
@@ -191,16 +191,23 @@ export const KB_CHANNELS = [
 const KB_CH_BADGE = { all: 'b-info', whatsapp: 'b-ok', instagram: 'b-warn', website: 'b-info', voice: 'b-ok' }
 const chLabel = (v, t) => { const c = KB_CHANNELS.find((x) => x.v === v); return c ? (c.key ? t(c.key) : c.label) : v }
 
+const KB_ACCEPT = '.pdf,.txt,.md,.csv,.docx,.xlsx,.xls,application/pdf,text/plain'
+const KB_MAX_BYTES = 10 * 1024 * 1024
+
 export function KnowledgeView() {
   const toast = useToast()
   const { t } = useLang()
+  const fileRef = useRef(null)
   const [sources, setSources] = useState([])
   const [url, setUrl] = useState('')
   const [q, setQ] = useState('')
   const [a, setA] = useState('')
+  const [note, setNote] = useState('')
   const [scope, setScope] = useState('all')   // "Train for" target
   const [filter, setFilter] = useState('')     // "" = show all entries
   const [editing, setEditing] = useState(null) // entry being edited
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
 
   const load = () => apiGet('/knowledge').then(setSources).catch(() => {})
   useEffect(() => { load() }, [])
@@ -215,7 +222,37 @@ export function KnowledgeView() {
     await apiPostAuth('/knowledge', { type: 'qa', title: q.trim(), content: a.trim(), meta: 'Manual Q&A', channel: scope }).catch(() => {})
     setQ(''); setA(''); toast(); load()
   }
-  async function remove(id) { await apiDelete('/knowledge/' + id).catch(() => {}); load() }
+  async function addNote() {
+    const text = note.trim()
+    if (!text) return
+    const title = text.split('\n')[0].slice(0, 80)
+    await apiPostAuth('/knowledge', { type: 'qa', title, content: text, meta: 'Training note', channel: scope }).catch(() => {})
+    setNote(''); toast(); load()
+  }
+  async function uploadFiles(fileList) {
+    const files = [...(fileList || [])]
+    if (!files.length || uploading) return
+    setUploading(true)
+    let ok = 0
+    try {
+      for (const file of files) {
+        if (file.size > KB_MAX_BYTES) { toast(t('kb_too_big')); continue }
+        await apiUpload('/knowledge/upload', file, { channel: scope, title: file.name })
+        ok += 1
+      }
+      if (ok) toast()
+    } catch (e) {
+      toast(e.message || t('kb_upload_fail'))
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+      if (ok) load()
+    }
+  }
+  async function remove(id) {
+    if (!window.confirm(t('kb_delete_ask'))) return
+    await apiDelete('/knowledge/' + id).catch(() => {}); load()
+  }
 
   const shown = filter ? sources.filter((s) => (s.channel || 'all') === filter) : sources
 
@@ -230,6 +267,25 @@ export function KnowledgeView() {
           </select>
           <div className="hint" style={{ marginTop: 6 }}><T k="kb_for_hint" /></div>
         </div>
+        <div
+          className={`drop${dragOver ? ' over' : ''}${uploading ? ' busy' : ''}`}
+          onClick={() => !uploading && fileRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files) }}
+        >
+          <Icon name="upload-cloud" />
+          <div style={{ marginTop: 8, fontWeight: 600 }}><T k={uploading ? 'kb_s5' : 'kb_drop'} /></div>
+          <small><T k="kb_types" /></small>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          hidden
+          multiple
+          accept={KB_ACCEPT}
+          onChange={(e) => uploadFiles(e.target.files)}
+        />
         <div className="field"><label><T k="kb_url" /></label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input placeholder="https://yoursite.com/faq" value={url} onChange={(e) => setUrl(e.target.value)} />
@@ -241,6 +297,11 @@ export function KnowledgeView() {
           <textarea rows="2" placeholder={t('kb_a')} value={a} onChange={(e) => setA(e.target.value)} />
         </div>
         <button className="btn btn-g" onClick={addQa}><Icon name="brain" size={16} /><T k="kb_train" /></button>
+        <div className="field" style={{ marginTop: 16 }}><label><T k="kb_note" /></label>
+          <textarea rows="3" placeholder={t('kb_note_ph')} value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        <button className="btn btn-o" onClick={addNote}><Icon name="message-square" size={16} /><T k="kb_note_save" /></button>
+        <div className="hint" style={{ marginTop: 12 }}><T k="kb_adopt" /></div>
       </div>
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -285,18 +346,21 @@ function KbEditModal({ entry, onClose, onSaved }) {
     catch { toast(t('save_failed')) }
   }
   const isUrl = entry.type === 'url'
+  const isFile = entry.type === 'file'
   return (
     <div className="modal open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card" style={{ maxWidth: 520 }}>
         <button className="modal-x" onClick={onClose}><Icon name="x" /></button>
         <h3 style={{ marginBottom: 12 }}><Icon name="pencil" size={16} /> <T k="kb_edit" /></h3>
-        <div className="field"><label>{isUrl ? t('kb_url') : t('kb_q')}</label>
+        <div className="field"><label>{isFile ? t('kb_file_title') : isUrl ? t('kb_url') : t('kb_q')}</label>
           <input value={f.title} onChange={(e) => set('title', e.target.value)} />
         </div>
         {isUrl ? (
           <div className="field"><label>URL</label><input value={f.source_url} onChange={(e) => set('source_url', e.target.value)} /></div>
         ) : (
-          <div className="field"><label>{t('kb_a')}</label><textarea rows="5" value={f.content} onChange={(e) => set('content', e.target.value)} /></div>
+          <div className="field"><label>{isFile ? t('kb_file_content') : t('kb_a')}</label>
+            <textarea rows={isFile ? 10 : 5} value={f.content} onChange={(e) => set('content', e.target.value)} />
+          </div>
         )}
         <div className="field"><label><T k="kb_for" /></label>
           <select value={f.channel} onChange={(e) => set('channel', e.target.value)}>

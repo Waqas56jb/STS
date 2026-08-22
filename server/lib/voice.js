@@ -2,6 +2,7 @@ import WebSocket from 'ws'
 import { pool, one, many } from '../db.js'
 import { resolveOpenAIKey } from './ai.js'
 import { decryptJSON } from './crypto.js'
+import { formatKnowledgeForPrompt } from './kbPrompt.js'
 
 /**
  * Voice agent = Twilio phone line ⇄ OpenAI Realtime API.
@@ -112,7 +113,7 @@ async function buildInstructions(businessId, direction) {
   const [biz, bot, kb] = await Promise.all([
     one(`select name from sts_businesses where id=$1`, [businessId]),
     one(`select greeting, tone, language from sts_bot_settings where business_id=$1 and channel='voice'`, [businessId]),
-    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='all' or channel='voice') order by created_at desc limit 40`, [businessId]),
+    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='all' or channel='voice') order by created_at desc limit 80`, [businessId]),
   ])
   const name = biz?.name || 'this business'
   const tone = TONE[bot?.tone] || TONE.friendly
@@ -126,9 +127,7 @@ async function buildInstructions(businessId, direction) {
     languageRule = `Start in English. Greet the caller, then ask which language they prefer. From then on speak ENTIRELY in the caller's language, matching whatever language they speak (Arabic, English, Hindi, Urdu, etc.).`
   }
 
-  const kbText = kb.length
-    ? kb.map((k, i) => `(${i + 1}) ${k.title}${k.content ? ` — ${k.content}` : ''}${k.source_url ? ` [${k.source_url}]` : ''}`).join('\n')
-    : '(no knowledge base entries yet)'
+  const kbText = formatKnowledgeForPrompt(kb)
 
   const purpose = direction === 'outbound'
     ? `This is an OUTBOUND call you are placing on behalf of the business. When the person answers, greet them, introduce yourself as ${name}'s assistant, and carry out the purpose below.`

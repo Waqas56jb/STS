@@ -1,5 +1,6 @@
 import { one, many } from '../db.js'
 import { decryptJSON } from './crypto.js'
+import { formatKnowledgeForPrompt } from './kbPrompt.js'
 
 /**
  * The AI "brain" for the chat agents. Generates a reply grounded in the
@@ -30,12 +31,10 @@ export async function resolveOpenAIKey() {
 /** Build the grounding system prompt from bot settings + knowledge base. */
 function buildSystemPrompt({ businessName, bot, kb }) {
   const tone = TONE[bot?.tone] || TONE.friendly
-  const kbText = kb.length
-    ? kb.map((k, i) => `(${i + 1}) ${k.title}${k.content ? ` — ${k.content}` : ''}${k.source_url ? ` [${k.source_url}]` : ''}`).join('\n')
-    : '(no knowledge base entries yet)'
+  const kbText = formatKnowledgeForPrompt(kb)
   return [
     `You are the WhatsApp customer-service assistant for "${businessName || 'this business'}".`,
-    `Answer using ONLY the business knowledge below. If the answer isn't there, say you'll connect the customer to a team member — do not guess or invent prices, stock, delivery times or policies.`,
+    `Answer using ONLY the business knowledge below (uploaded documents, training notes, Q&As, and URLs). If the answer isn't there, say you'll connect the customer to a team member — do not guess or invent prices, stock, delivery times or policies.`,
     `Be ${tone}. Reply in the customer's language (Arabic or English, matching their message). Keep replies short and natural for WhatsApp — 1 to 4 short sentences, no markdown.`,
     bot?.greeting ? `Tone/greeting reference: ${bot.greeting}` : '',
     '',
@@ -56,7 +55,7 @@ export async function generateReply({ businessId, businessName, channel = 'whats
   const [bot, kb, key] = await Promise.all([
     one(`select greeting, tone, language from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, channel]),
     // this channel's own knowledge + anything scoped to "all" (shared)
-    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='all' or channel=$2) order by created_at desc limit 40`, [businessId, channel]),
+    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (channel='all' or channel=$2) order by created_at desc limit 80`, [businessId, channel]),
     resolveOpenAIKey(),
   ])
 
