@@ -9,7 +9,7 @@ const isLocal =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
 
-const PROD_API = 'https://sts-production-afc5.up.railway.app/api'
+const PROD_API = 'https://sts-production-85ff.up.railway.app/api'
 
 export const API =
   window.STS_API || (isLocal ? '/api' : (import.meta.env.VITE_API_URL || PROD_API))
