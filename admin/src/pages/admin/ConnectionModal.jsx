@@ -167,7 +167,7 @@ export function ConnectionModal({ business, onClose }) {
         )}
 
         {mode === 'train' && business?.id && (
-          <TrainingStudio compact api={adminTrainingApi(business.id)} />
+          <TrainingStudio compact api={adminTrainingApi(business.id)} defaultChannel={channel} hideAgentPicker />
         )}
 
         {mode === 'history' && business?.id && (

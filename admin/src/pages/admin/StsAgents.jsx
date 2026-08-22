@@ -3,53 +3,18 @@ import { Icon } from '../../components/Icon'
 import { useAdminT } from '../../i18n/admin'
 import { apiGet, apiPut, apiDelete } from '../../lib/api'
 import { useToast } from '../ui'
-import { VoiceAgent } from './VoiceAgent'
 import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
 import { AgentHistoryPanel } from './AgentActivity'
 
-const TABS = [
-  { v: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
-  { v: 'instagram', label: 'Instagram', icon: 'instagram' },
-  { v: 'website', label: 'Website', icon: 'globe' },
-  { v: 'voice', label: 'Voice', icon: 'phone-call' },
-]
-
 export function StsAgents() {
-  const { t } = useAdminT()
-  const [tab, setTab] = useState('whatsapp')
   const [ctx, setCtx] = useState(null)
   useEffect(() => { apiGet('/admin/agent/context').then(setCtx).catch(() => {}) }, [])
 
   return (
     <>
-      <div className="field" style={{ maxWidth: 280, marginBottom: 18 }}>
-        <label>{t('act_channel')}</label>
-        <select value={tab} onChange={(e) => setTab(e.target.value)}>
-          {TABS.map((tabItem) => (
-            <option key={tabItem.v} value={tabItem.v}>{tabItem.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {tab === 'voice' ? (
-        <>
-          <VoiceAgent businessId={ctx?.business_id} />
-          <div style={{ marginTop: 18 }}><AgentHistoryPanel channel="voice" /></div>
-        </>
-      ) : tab === 'website' ? (
-        ctx?.business_id && (
-          <>
-            <TrainingStudio api={adminTrainingApi(ctx.business_id)} defaultChannel="website" />
-            <div style={{ marginTop: 18 }}><AgentHistoryPanel channel="website" /></div>
-          </>
-        )
-      ) : (
-        <>
-          <ChannelAgent key={tab} channel={tab} ctx={ctx} />
-          <div style={{ marginTop: 18 }}><AgentHistoryPanel channel={tab} /></div>
-        </>
-      )}
+      <ChannelAgent channel="whatsapp" ctx={ctx} />
+      <div style={{ marginTop: 18 }}><AgentHistoryPanel channel="whatsapp" /></div>
     </>
   )
 }
@@ -61,7 +26,13 @@ function ChannelAgent({ channel, ctx }) {
         <AgentConnection channel={channel} spec={ctx?.spec?.[channel]} />
         {channel === 'whatsapp' && <WhatsAppWebhook ctx={ctx} />}
       </div>
-      {ctx?.business_id && <TrainingStudio api={adminTrainingApi(ctx.business_id)} defaultChannel={channel} />}
+      {ctx?.business_id && (
+        <TrainingStudio
+          api={adminTrainingApi(ctx.business_id)}
+          defaultChannel={channel}
+          hideAgentPicker
+        />
+      )}
     </>
   )
 }

@@ -95,6 +95,7 @@ export function TrainingStudio({
   api,
   defaultChannel = 'all',
   compact = false,
+  hideAgentPicker = false,
 }) {
   const { t } = useAdminT()
   const toast = useToast()
@@ -256,6 +257,7 @@ export function TrainingStudio({
         </div>
       </header>
 
+      {!hideAgentPicker && (
       <div className="train-filters" role="tablist">
         {AGENTS.map((c) => (
           <button
@@ -269,6 +271,7 @@ export function TrainingStudio({
           </button>
         ))}
       </div>
+      )}
 
       <div className="train-layout" key={agent}>
         <div className="train-flow">
