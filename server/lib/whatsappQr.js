@@ -465,7 +465,10 @@ export async function stopQrSession(businessId, { wipe = false } = {}) {
     try { s.sock.ws?.close() } catch { /* ignore */ }
   }
   sessions.delete(businessId)
-  if (wipe) wipeSessionDir(businessId)
+  if (wipe) {
+    wipeSessionDir(businessId)
+    await clearAuthInDb(businessId)
+  }
   await persistMeta(businessId, { status: wipe ? 'logged_out' : 'disconnected' }).catch(() => {})
   emit(businessId, { type: 'whatsapp:disconnected', status: wipe ? 'logged_out' : 'disconnected', qr: null })
   log(`business=${businessId} status=${wipe ? 'logged_out' : 'disconnected'}`)

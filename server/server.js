@@ -9,7 +9,7 @@ import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.
 import { verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
 import { sendWhatsAppByProvider } from './lib/whatsappTransport.js'
 import {
-  attachQrSocket, startQrSession, stopQrSession, logoutQrSession, getQrStatus, resolveQrStatus,
+  attachQrSocket, startQrSession, stopQrSession, logoutQrSession, resolveQrStatus,
   restoreQrSessions, setQrInboundHandler, qrEnabled, businessAllowsWhatsApp,
 } from './lib/whatsappQr.js'
 import { generateReply } from './lib/ai.js'
@@ -1125,20 +1125,20 @@ async function connectionsFor(businessId, reveal = false) {
   const rows = await many(`select channel, connected, secrets_enc, updated_at from sts_channel_configs where business_id=$1`, [businessId])
   const byCh = {}
   rows.forEach((r) => (byCh[r.channel] = r))
+  const qr = await resolveQrStatus(businessId)
   return CHANNELS.map((channel) => {
     const row = byCh[channel]
     let creds = {}
     try { creds = row ? decryptJSON(row.secrets_enc) : {} } catch { creds = {} }
     let connected = row?.connected || false
     if (channel === 'whatsapp' && creds.provider === 'qr') {
-      const st = await resolveQrStatus(businessId)
-      connected = st.status === 'connected' || st.status === 'reconnecting'
+      connected = qr.status === 'connected' || qr.status === 'reconnecting'
     }
     return {
       channel,
       connected,
       provider: channel === 'whatsapp' ? resolveWhatsAppProvider(creds) : undefined,
-      display_number: creds.display_number || '',
+      display_number: creds.display_number || qr.display_number || '',
       fields: reveal ? creds : maskCredentials(creds),
       updated_at: row?.updated_at || null,
     }
