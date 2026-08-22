@@ -1331,10 +1331,10 @@ app.delete('/api/me/connections/:channel', auth, wrap(async (req, res) => {
 }))
 
 /* ---------- WhatsApp QR (client — own business from JWT) ---------- */
-async function qrStartFor(businessId, res) {
+async function qrStartFor(businessId, res, { restore = false, force = false } = {}) {
   if (!qrEnabled()) return res.status(503).json({ error: 'WhatsApp QR is disabled on this server' })
   if (!(await businessAllowsWhatsApp(businessId))) return res.status(403).json({ error: 'WhatsApp is not on this plan' })
-  const status = await startQrSession(businessId)
+  const status = await startQrSession(businessId, { restore, force })
   res.json({ success: true, ...status })
 }
 async function qrStatusFor(businessId, res) {
@@ -1356,7 +1356,7 @@ app.post('/api/me/whatsapp/qr/logout', auth, wrap(async (req, res) => {
 app.post('/api/me/whatsapp/qr/reconnect', auth, wrap(async (req, res) => {
   if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
   await stopQrSession(biz(req), { wipe: false }).catch(() => {})
-  await qrStartFor(biz(req), res)
+  await qrStartFor(biz(req), res, { force: true })
 }))
 
 // ADMIN: manage any business's connections
@@ -1406,7 +1406,7 @@ app.post('/api/admin/businesses/:id/whatsapp/qr/reconnect', auth, adminOnly, wra
   const id = await adminBizOr404(req.params.id, res, req)
   if (!id) return
   await stopQrSession(id, { wipe: false }).catch(() => {})
-  await qrStartFor(id, res)
+  await qrStartFor(id, res, { force: true })
 }))
 
 /* ---------- ADMIN: per-business knowledge base (chatbot training) ---------- */
@@ -1838,7 +1838,7 @@ app.post('/api/admin/agent/whatsapp/qr/logout', auth, adminOnly, wrap(async (req
 app.post('/api/admin/agent/whatsapp/qr/reconnect', auth, adminOnly, wrap(async (_req, res) => {
   const pid = adminWorkspace(req)
   await stopQrSession(pid, { wipe: false }).catch(() => {})
-  await qrStartFor(pid, res)
+  await qrStartFor(pid, res, { force: true })
 }))
 
 app.get('/api/admin/agent/:channel/bot', auth, adminOnly, wrap(async (req, res) => {

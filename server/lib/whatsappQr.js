@@ -52,6 +52,21 @@ const persistTimers = new Map()
 const sessionGen = new Map()
 /** Pending reconnect timers — only one per business. */
 const reconnectTimers = new Map()
+/** Businesses blocked because the same phone is linked elsewhere. */
+const duplicatePhoneBusinesses = new Set()
+const reconnectAttempts = new Map()
+const MAX_RECONNECT_ATTEMPTS = 10
+
+/** Only Railway/production auto-restores QR on boot — local dev must not steal production sessions. */
+function shouldAutoRestore() {
+  if (process.env.WHATSAPP_QR_AUTO_RESTORE === 'true') return true
+  if (process.env.WHATSAPP_QR_AUTO_RESTORE === 'false') return false
+  return !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PUBLIC_DOMAIN)
+}
+
+function phoneFromCreds(creds) {
+  return normalizeWaHandle(creds?.display_number || creds?.ext_ref || '')
+}
 
 function clearReconnectTimer(businessId) {
   const t = reconnectTimers.get(businessId)
@@ -129,8 +144,28 @@ function unregisterPhoneOwner(businessId, displayNumber) {
 }
 
 function isInboundOwner(businessId) {
+  if (duplicatePhoneBusinesses.has(businessId)) return false
   const session = sessions.get(businessId)
   const phone = normalizeWaHandle(session?.displayNumber)
+  if (!phone) return true
+  const owner = phoneOwner.get(phone)
+  return !owner || owner === businessId
+}
+
+async function markDuplicatePhoneBusiness(businessId, phone, ownerId) {
+  duplicatePhoneBusinesses.add(businessId)
+  clearReconnectTimer(businessId)
+  reconnecting.delete(businessId)
+  reconnectAttempts.delete(businessId)
+  const msg = phone
+    ? `WhatsApp +${phone} is already linked to another workspace. Disconnect QR there first.`
+    : 'This WhatsApp number is already linked to another workspace.'
+  setState(businessId, { status: 'error', qr: null, sock: null, error: msg })
+  await persistMeta(businessId, { status: 'duplicate_phone', error: msg }).catch(() => {})
+  log(`business=${businessId} duplicate phone ${phone || '?'} (owner=${ownerId})`)
+}
+
+function canConnectPhone(businessId, phone) {
   if (!phone) return true
   const owner = phoneOwner.get(phone)
   return !owner || owner === businessId
@@ -282,8 +317,20 @@ export async function resolveQrStatus(businessId) {
   try { creds = row ? decryptJSON(row.secrets_enc) : {} } catch { creds = {} }
   const paired = creds.provider === 'qr' && creds.status === 'connected' && (row?.qr_auth_enc || hasRegisteredCreds(businessId))
   if (!paired) return live
-  if (!starting.has(businessId) && !reconnecting.has(businessId) && !reconnectTimers.has(businessId) && !sessions.get(businessId)?.sock) {
-    startQrSession(businessId, { restore: true }).catch((e) => log('auto-resume failed', e.message))
+  if (duplicatePhoneBusinesses.has(businessId)) {
+    return { ...live, status: 'error', error: live.error || 'WhatsApp linked elsewhere on this account.' }
+  }
+  if (
+    shouldAutoRestore() &&
+    !starting.has(businessId) &&
+    !reconnecting.has(businessId) &&
+    !reconnectTimers.has(businessId) &&
+    !sessions.get(businessId)?.sock
+  ) {
+    const phone = phoneFromCreds(creds)
+    if (!phone || canConnectPhone(businessId, phone)) {
+      startQrSession(businessId, { restore: true }).catch((e) => log('auto-resume failed', e.message))
+    }
   }
   return {
     provider: 'qr',
@@ -446,8 +493,12 @@ export async function sendQrVoice(businessId, to, audioBuffer, mimeType = 'audio
   })
 }
 
-export async function startQrSession(businessId, { restore = false } = {}) {
+export async function startQrSession(businessId, { restore = false, force = false } = {}) {
   if (!QR_ENABLED) throw new Error('WhatsApp QR is disabled')
+  if (force) duplicatePhoneBusinesses.delete(businessId)
+  if (duplicatePhoneBusinesses.has(businessId) && restore && !force) {
+    return getQrStatus(businessId)
+  }
   const existing = sessions.get(businessId)
   if (existing?.status === 'connected' && existing.sock) return getQrStatus(businessId)
   if (!restore && (existing?.status === 'qr' || existing?.status === 'starting' || existing?.status === 'connecting')) {
@@ -474,6 +525,30 @@ export async function startQrSession(businessId, { restore = false } = {}) {
 
     await hydrateAuthFromDb(businessId).catch(() => {})
     const dir = sessionDir(businessId)
+
+    const metaRow = await one(
+      `select secrets_enc from sts_channel_configs where business_id=$1 and channel='whatsapp'`,
+      [businessId],
+    ).catch(() => null)
+    let meta = {}
+    try { meta = metaRow ? decryptJSON(metaRow.secrets_enc) : {} } catch { meta = {} }
+    const knownPhone = phoneFromCreds(meta)
+    if (knownPhone && !canConnectPhone(businessId, knownPhone)) {
+      const owner = phoneOwner.get(knownPhone)
+      await markDuplicatePhoneBusiness(businessId, knownPhone, owner)
+      return getQrStatus(businessId)
+    }
+
+    if (!force && !shouldAutoRestore() && restore) {
+      log(`business=${businessId} skip restore — auto-restore disabled on this host`)
+      setState(businessId, { status: 'disconnected', qr: null, error: null, sock: null })
+      return getQrStatus(businessId)
+    }
+
+    if (!restore && knownPhone && !shouldAutoRestore()) {
+      log(`business=${businessId} WARNING: starting QR locally will disconnect production if the same phone is linked`)
+    }
+
     fs.mkdirSync(dir, { recursive: true })
 
     const baileys = await loadBaileys()
@@ -518,14 +593,11 @@ export async function startQrSession(businessId, { restore = false } = {}) {
           if (!registerPhoneOwner(businessId, display)) {
             log(`business=${businessId} duplicate phone link — disconnecting`)
             destroyActiveSocket(businessId)
-            setState(businessId, {
-              status: 'error',
-              qr: null,
-              sock: null,
-              error: 'This WhatsApp number is already linked to another workspace. Disconnect it there first.',
-            })
+            const owner = phoneOwner.get(normalizeWaHandle(display))
+            await markDuplicatePhoneBusiness(businessId, normalizeWaHandle(display), owner)
             return
           }
+          reconnectAttempts.delete(businessId)
           setState(businessId, {
             status: 'connected',
             qr: null,
@@ -549,6 +621,7 @@ export async function startQrSession(businessId, { restore = false } = {}) {
           if (loggedOut) {
             reconnecting.delete(businessId)
             clearReconnectTimer(businessId)
+            reconnectAttempts.delete(businessId)
             setState(businessId, { status: 'logged_out', qr: null, sock: null, error: 'Unlinked on the phone — scan a new QR' })
             await persistMeta(businessId, { status: 'logged_out' }).catch(() => {})
             wipeSessionDir(businessId)
@@ -557,12 +630,33 @@ export async function startQrSession(businessId, { restore = false } = {}) {
             return
           }
           if (reconnectTimers.has(businessId)) return
+          if (duplicatePhoneBusinesses.has(businessId)) {
+            setState(businessId, { status: 'error', qr: null, sock: null })
+            return
+          }
+          const attempts = (reconnectAttempts.get(businessId) || 0) + 1
+          reconnectAttempts.set(businessId, attempts)
+          if (attempts > MAX_RECONNECT_ATTEMPTS) {
+            reconnecting.delete(businessId)
+            setState(businessId, {
+              status: 'error',
+              qr: null,
+              sock: null,
+              error: 'WhatsApp keeps disconnecting. Log out QR, remove linked devices on your phone, then scan again.',
+            })
+            return
+          }
           reconnecting.add(businessId)
           setState(businessId, { status: 'reconnecting', qr: null, error: null, sock: null })
-          const delay = code === 515 ? 1200 : code === 440 ? 8000 : 4000
+          const is440 = code === 440 || code === baileys.DisconnectReason?.connectionReplaced
+          const delay = is440 ? 60_000 : code === 515 ? 1200 : 4000
+          if (is440) {
+            log(`business=${businessId} connection replaced (440) — waiting ${delay / 1000}s (another server or linked device may be active)`)
+          }
           const timer = setTimeout(() => {
             reconnectTimers.delete(businessId)
             if (sessionGen.get(businessId) !== gen) return
+            if (duplicatePhoneBusinesses.has(businessId)) return
             startQrSession(businessId, { restore: true })
               .catch((e) => log('reconnect failed', e.message))
           }, delay)
@@ -705,13 +799,23 @@ export async function logoutQrSession(businessId) {
 
 export async function restoreQrSessions() {
   if (!QR_ENABLED) return
+  if (!shouldAutoRestore()) {
+    log('auto-restore skipped on this host (local dev). Set WHATSAPP_QR_AUTO_RESTORE=true only if you intend to connect WhatsApp here.')
+    return
+  }
   let rows = []
   try {
-    rows = await many(`select business_id, secrets_enc, qr_auth_enc from sts_channel_configs where channel='whatsapp'`)
+    rows = await many(
+      `select business_id, secrets_enc, qr_auth_enc, updated_at from sts_channel_configs where channel='whatsapp' order by updated_at desc`,
+    )
   } catch (e) {
     log('restore skipped', e.message)
     return
   }
+
+  const phoneWinner = new Map()
+  const noPhone = []
+
   for (const r of rows) {
     let creds = {}
     try { creds = decryptJSON(r.secrets_enc) } catch { continue }
@@ -719,8 +823,26 @@ export async function restoreQrSessions() {
     if (creds.status === 'logged_out') continue
     const hydrated = await hydrateAuthFromDb(r.business_id).catch(() => false)
     if (!hydrated && !hasRegisteredCreds(r.business_id) && !r.qr_auth_enc) continue
-    // Stagger restores so multiple businesses don't fight for connections at once.
-    await new Promise((res) => setTimeout(res, 1500 * rows.indexOf(r)))
+
+    const phone = phoneFromCreds(creds)
+    if (!phone) {
+      noPhone.push(r)
+      continue
+    }
+    if (!phoneWinner.has(phone)) {
+      phoneWinner.set(phone, r)
+      continue
+    }
+    const winner = phoneWinner.get(phone)
+    await markDuplicatePhoneBusiness(r.business_id, phone, winner.business_id)
+  }
+
+  const toRestore = [...phoneWinner.values(), ...noPhone]
+  log(`restoring ${toRestore.length} QR session(s) (${rows.length - toRestore.length} duplicate phone skipped)`)
+
+  for (let i = 0; i < toRestore.length; i++) {
+    const r = toRestore[i]
+    await new Promise((res) => setTimeout(res, 2000 * i))
     startQrSession(r.business_id, { restore: true }).catch((e) => log(`restore ${r.business_id} failed`, e.message))
   }
 }
