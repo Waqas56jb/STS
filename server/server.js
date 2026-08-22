@@ -18,7 +18,9 @@ import {
   customerKey, loadCustomerMemory, loadConversationHistory,
   touchCustomerMemory, refreshCustomerMemory,
 } from './lib/memory.js'
-import { ensureTrainingSchema } from './lib/ensureSchema.js'
+import {
+  fillRevenueMonthly, fillGrowthMonthly, fillMessagesDaily, fillPlanCategories,
+} from './lib/adminAnalytics.js'
 import {
   parseSiteConfig, DEFAULT_WHATSAPP, DEFAULT_EMAIL, waLink, pricingPlanUpdates,
 } from './lib/siteConfig.js'
@@ -1159,15 +1161,33 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
          order by (select count(*) from sts_messages m where m.business_id=b.id) desc limit 6`,
       [ids],
     ),
-    many(`select to_char(date_trunc('day', created_at),'Mon DD') d, count(*)::int n from sts_messages where business_id=any($1::uuid[]) and created_at > now() - interval '14 days' group by date_trunc('day', created_at) order by date_trunc('day', created_at)`, [ids]),
+    many(`select to_char(date_trunc('day', created_at),'YYYY-MM-DD') day_key,
+                 to_char(date_trunc('day', created_at),'Mon DD') d,
+                 count(*)::int n
+            from sts_messages where business_id=any($1::uuid[]) and created_at > now() - interval '14 days'
+            group by date_trunc('day', created_at) order by date_trunc('day', created_at)`, [ids]),
     many(`select to_char(date_trunc('month', created_at),'Mon') m, coalesce(sum(amount_kwd),0)::numeric total
             from sts_payments where business_id=any($1::uuid[]) and status='paid' and created_at > now() - interval '6 months'
             group by date_trunc('month', created_at) order by date_trunc('month', created_at)`, [ids]),
-    many(`select to_char(date_trunc('month', created_at),'Mon') m,
-                 count(*) filter (where status='paid')::int paid,
-                 count(*) filter (where status in ('free','suspended'))::int free
-            from sts_businesses where id=any($1::uuid[]) and created_at > now() - interval '6 months'
-            group by date_trunc('month', created_at) order by date_trunc('month', created_at)`, [ids]),
+    many(
+      `with months as (
+         select generate_series(
+           date_trunc('month', now()) - interval '5 months',
+           date_trunc('month', now()),
+           interval '1 month'
+         ) as month_start
+       )
+       select to_char(m.month_start, 'Mon') as m,
+              (select count(*)::int from sts_businesses b
+                where b.id = any($1::uuid[]) and b.status = 'paid'
+                  and b.created_at < m.month_start + interval '1 month') as paid,
+              (select count(*)::int from sts_businesses b
+                where b.id = any($1::uuid[]) and b.status in ('free','suspended')
+                  and b.created_at < m.month_start + interval '1 month') as free
+         from months m
+         order by m.month_start`,
+      [ids],
+    ),
     many(`select c.channel, count(m.*)::int n from sts_messages m join sts_conversations c on c.id=m.conversation_id where m.business_id=any($1::uuid[]) group by c.channel`, [ids]),
     one(`select coalesce(sum(mrr),0)::numeric mrr, count(*) filter (where status='paid')::int paid from sts_businesses where id=any($1::uuid[])`, [ids]),
     many(
@@ -1206,12 +1226,16 @@ app.get('/api/admin/analytics', auth, adminOnly, wrap(async (req, res) => {
     ),
   ])
   const mrrArpu = totals.paid ? Number(totals.mrr) / totals.paid : 0
+  const revenueMonthly = fillRevenueMonthly(revenue, { currentMrr: Number(totals.mrr) })
+  const growthMonthly = fillGrowthMonthly(growth)
+  const messagesDaily = fillMessagesDaily(daily)
+  const byPlanFilled = fillPlanCategories(byPlan)
   res.json({
-    by_plan: byPlan.map((r) => ({ category: r.category, mrr: Number(r.mrr) })),
+    by_plan: byPlanFilled.map((r) => ({ category: r.category, mrr: Number(r.mrr) })),
     top_businesses: top.map((r) => ({ biz: r.name, mrr: kwd(r.mrr), msgs: r.msgs, voice_min: r.voice_min })),
-    messages_daily: daily,
-    revenue_monthly: revenue.map((r) => ({ m: r.m, total: Number(r.total) })),
-    growth_monthly: growth.map((r) => ({ m: r.m, paid: r.paid, free: r.free })),
+    messages_daily: messagesDaily,
+    revenue_monthly: revenueMonthly,
+    growth_monthly: growthMonthly,
     usage_by_channel: usage.map((r) => ({ channel: r.channel, n: r.n })),
     arpu: totals.paid ? Number((Number(totals.mrr) / totals.paid).toFixed(1)) : 0,
     arpu_monthly: arpuRows.map((r) => {
