@@ -984,15 +984,72 @@ app.post('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
 app.get('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {
   const ids = idList(await adminReportBusinessIds(req.user))
   const rows = await many(
-    `select i.number, i.description, i.amount_kwd, i.status, coalesce(i.due_at,i.issued_at) d, b.name as biz
+    `select i.id, i.number, i.description, i.amount_kwd, i.status, i.issued_at, coalesce(i.due_at,i.issued_at) d, b.name as biz
        from sts_invoices i left join sts_businesses b on b.id=i.business_id
       where i.business_id=any($1::uuid[])
       order by coalesce(i.due_at,i.issued_at) desc`,
     [ids],
   )
   res.json(rows.map((r) => ({
-    no: r.number, biz: r.biz, desc: r.description, amt: kwd(r.amount_kwd), due: dmy(r.d), st: r.status,
+    id: r.id, no: r.number, biz: r.biz, desc: r.description, amt: kwd(r.amount_kwd), due: dmy(r.d), st: r.status,
   })))
+}))
+
+app.get('/api/admin/invoices/:key', auth, adminOnly, wrap(async (req, res) => {
+  const ids = idList(await adminReportBusinessIds(req.user))
+  const key = req.params.key
+  const row = await one(
+    `select i.*, b.name as business_name, b.whatsapp, b.plan_code, p.name as plan_name, p.price_kwd as plan_price,
+            (select email from sts_users u where u.business_id=b.id and u.role='client' order by u.created_at limit 1) as client_email,
+            (select name from sts_users u where u.business_id=b.id and u.role='client' order by u.created_at limit 1) as client_name
+       from sts_invoices i
+       join sts_businesses b on b.id=i.business_id
+       left join sts_plans p on p.code=b.plan_code
+      where i.business_id=any($1::uuid[])
+        and (i.id::text=$2 or i.number=$2)`,
+    [ids, key],
+  )
+  if (!row) return res.status(404).json({ error: 'Invoice not found' })
+
+  const settings = {}
+  for (const r of await many(`select key, value from sts_settings where key in ('support_whatsapp','support_email','currency')`)) {
+    settings[r.key] = r.value
+  }
+  const payment = await one(
+    `select reference, method, status, created_at from sts_payments where invoice_id=$1 order by created_at desc limit 1`,
+    [row.id],
+  )
+
+  res.json({
+    id: row.id,
+    number: row.number,
+    description: row.description || '',
+    amount: Number(row.amount_kwd),
+    amount_fmt: kwd(row.amount_kwd),
+    status: row.status,
+    issued_at: dmy(row.issued_at),
+    due_at: dmy(row.due_at),
+    business: {
+      name: row.business_name,
+      email: row.client_email || '',
+      contact: row.client_name || row.business_name,
+      whatsapp: row.whatsapp || '',
+      plan: row.plan_name || row.plan_code || '',
+    },
+    platform: {
+      name: 'STS',
+      tagline: 'AI Customer Service Platform',
+      email: settings.support_email || 'support@stsq8.com',
+      whatsapp: settings.support_whatsapp || '',
+      currency: settings.currency || 'KWD',
+    },
+    payment: payment ? {
+      reference: payment.reference,
+      method: methodLabel(payment.method),
+      status: payment.status,
+      date: dmy(payment.created_at),
+    } : null,
+  })
 }))
 
 app.post('/api/admin/invoices', auth, adminOnly, wrap(async (req, res) => {

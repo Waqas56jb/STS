@@ -9,6 +9,7 @@ import { useToast } from '../ui'
 import {
   RevenueChart, GrowthChart, PlanChart, MessagesChart, ArpuChart, UsageChart,
 } from './Charts'
+import { InvoiceModal } from './InvoiceModal'
 
 const nfmt = (n) => Number(n || 0).toLocaleString('en')
 
@@ -199,41 +200,58 @@ export function Payments({ paymentStats }) {
 /* ===================== INVOICES ===================== */
 export function Invoices() {
   const { t } = useAdminT()
-  const toast = useToast()
   const [invs, setInvs] = useState([])
   const [q, setQ] = useState('')
   const [f, setF] = useState('all')
+  const [viewKey, setViewKey] = useState(null)
   useEffect(() => { apiGet('/admin/invoices').then(setInvs).catch(() => {}) }, [])
   const rows = invs.filter((i) => (f === 'all' || i.st === f) && (i.no + i.biz).toLowerCase().includes(q.toLowerCase()))
   return (
-    <div className="card">
-      <div className="toolbar">
-        <input placeholder={t('srch_i')} value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={f} onChange={(e) => setF(e.target.value)}>
-          <option value="all">{t('f_all')}</option><option value="paid">{t('paid')}</option><option value="unpaid">{t('unpaid')}</option><option value="overdue">{t('overdue')}</option>
-        </select>
-        <button className="btn btn-p" onClick={() => toast()}><Icon name="plus" size={15} />{t('new_inv')}</button>
+    <>
+      <div className="card">
+        <div className="toolbar">
+          <input placeholder={t('srch_i')} value={q} onChange={(e) => setQ(e.target.value)} />
+          <select value={f} onChange={(e) => setF(e.target.value)}>
+            <option value="all">{t('f_all')}</option><option value="paid">{t('paid')}</option><option value="unpaid">{t('unpaid')}</option><option value="overdue">{t('overdue')}</option>
+          </select>
+        </div>
+        <div className="tbl">
+          <table>
+            <thead><tr><th>{t('th_no')}</th><th>{t('th_biz')}</th><th>{t('th_desc')}</th><th>{t('th_amt')}</th><th>{t('th_due')}</th><th>{t('th_st')}</th><th /></tr></thead>
+            <tbody>
+              {rows.map((i) => (
+                <tr key={i.id || i.no}>
+                  <td><b>{i.no}</b></td><td>{i.biz}</td><td>{i.desc}</td><td><b>{i.amt}</b></td><td>{i.due}</td>
+                  <td><span className={`badge ${stBadge(i.st)}`}>{i.st.toUpperCase()}</span></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button
+                      className="btn btn-o"
+                      style={{ padding: '6px 11px' }}
+                      title={t('inv_view')}
+                      onClick={() => setViewKey(i.id || i.no)}
+                    >
+                      <Icon name="file-text" size={14} />
+                    </button>
+                    <button
+                      className="btn btn-g"
+                      style={{ padding: '6px 11px', marginInlineStart: 6 }}
+                      title={t('inv_download')}
+                      onClick={() => setViewKey(i.id || i.no)}
+                    >
+                      <Icon name="download" size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!rows.length && (
+            <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40, fontSize: 13 }}>{t('inv_empty')}</div>
+          )}
+        </div>
       </div>
-      <div className="tbl">
-        <table>
-          <thead><tr><th>{t('th_no')}</th><th>{t('th_biz')}</th><th>{t('th_desc')}</th><th>{t('th_amt')}</th><th>{t('th_due')}</th><th>{t('th_st')}</th><th /></tr></thead>
-          <tbody>
-            {rows.map((i) => (
-              <tr key={i.no}>
-                <td><b>{i.no}</b></td><td>{i.biz}</td><td>{i.desc}</td><td><b>{i.amt}</b></td><td>{i.due}</td>
-                <td><span className={`badge ${stBadge(i.st)}`}>{i.st.toUpperCase()}</span></td>
-                <td style={{ whiteSpace: 'nowrap' }}>
-                  <button className="btn btn-o" style={{ padding: '6px 11px' }} title="PDF"><Icon name="download" size={14} /></button>
-                  {i.st !== 'paid' && (
-                    <button className="btn btn-o" style={{ padding: '6px 11px' }} onClick={() => toast()} title={t('remind')}><Icon name="bell" size={14} /></button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+      {viewKey && <InvoiceModal invoiceKey={viewKey} onClose={() => setViewKey(null)} />}
+    </>
   )
 }
 
