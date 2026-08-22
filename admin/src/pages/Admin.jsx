@@ -174,7 +174,7 @@ function AdminInner({ onLogout }) {
         </aside>
 
         {/* ============ MAIN ============ */}
-        <main>
+        <main className={view === 'activity' ? 'main-activity' : ''}>
           <div className="topbar">
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <button className="burger" onClick={() => setSideOpen((o) => !o)}><Icon name="menu" /></button>
