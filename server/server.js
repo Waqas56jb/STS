@@ -38,6 +38,7 @@ app.use(
       try { host = new URL(origin).hostname } catch { /* ignore */ }
       if (/^(localhost|127\.0\.0\.1)$/.test(host)) return cb(null, true)
       if (/\.vercel\.app$/.test(host)) return cb(null, true)
+      if (/(^|\.)stsq8\.com$/.test(host)) return cb(null, true)
       cb(new Error('Not allowed by CORS'))
     },
     credentials: true,

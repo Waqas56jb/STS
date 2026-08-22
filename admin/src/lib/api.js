@@ -13,9 +13,9 @@ const PROD_API = 'https://sts-production-85ff.up.railway.app/api'
 export const API =
   window.STS_API || (isLocal ? '/api' : (import.meta.env.VITE_API_URL || PROD_API))
 
-/** The client-facing site (separate Vercel deployment). */
+/** The client-facing site (custom domain). */
 export const CLIENT_APP_URL =
-  import.meta.env.VITE_CLIENT_URL || (isLocal ? '/' : 'https://sts-blond.vercel.app/')
+  import.meta.env.VITE_CLIENT_URL || (isLocal ? '/' : 'https://www.stsq8.com/')
 
 export const WHATSAPP = 'https://wa.me/96551022389'
 
