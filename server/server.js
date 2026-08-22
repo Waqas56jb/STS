@@ -35,7 +35,8 @@ import {
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { publicBaseUrl, publicWsUrl, corsOrigins as railwayCorsOrigins } from './lib/publicUrl.js'
+import { WebSocketServer } from 'ws'
+import { publicBaseUrl, publicWsUrl, corsOrigins } from './lib/publicUrl.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -45,10 +46,7 @@ app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody =
 // Twilio posts webhooks as application/x-www-form-urlencoded
 app.use(express.urlencoded({ extended: false }))
 
-const origins = [
-  ...(process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
-  ...railwayCorsOrigins(),
-]
+const origins = corsOrigins()
 app.use(
   cors({
     origin(origin, cb) {
