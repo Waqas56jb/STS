@@ -1,22 +1,7 @@
-/**
- * API + cross-app URLs.
- *
- * Local dev uses the relative '/api' (Vite proxy). Production (Vercel)
- * calls the deployed backend directly. Override with VITE_* or window.STS_API.
- */
-const isLocal =
-  typeof location !== 'undefined' &&
-  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+import { resolveApiUrl, resolveClientAppUrl } from './urls.js'
 
-const PROD_API = 'https://sts-production-85ff.up.railway.app/api'
-const LOCAL_API = 'http://localhost:4000/api'
-
-export const API =
-  window.STS_API || (isLocal ? LOCAL_API : (import.meta.env.VITE_API_URL || PROD_API))
-
-/** The client-facing site (custom domain). */
-export const CLIENT_APP_URL =
-  import.meta.env.VITE_CLIENT_URL || (isLocal ? 'http://localhost:5173/' : 'https://www.stsq8.com/')
+export const API = resolveApiUrl()
+export const CLIENT_APP_URL = resolveClientAppUrl()
 
 export const WHATSAPP = 'https://wa.me/96551022389'
 

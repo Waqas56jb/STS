@@ -1,23 +1,7 @@
-/**
- * API + cross-app URLs.
- *
- * In local dev we use the relative '/api' (Vite proxies it to the Express
- * server). In production (Vercel) we call the deployed backend directly.
- * Override any of these with a VITE_* build env var or window.STS_API.
- */
-const isLocal =
-  typeof location !== 'undefined' &&
-  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+import { resolveApiUrl, resolveAdminAppUrl } from './urls.js'
 
-const PROD_API = 'https://sts-production-85ff.up.railway.app/api'
-const LOCAL_API = 'http://localhost:4000/api'
-
-export const API =
-  window.STS_API || (isLocal ? LOCAL_API : (import.meta.env.VITE_API_URL || PROD_API))
-
-/** Where an admin-role login is sent (separate Vercel deployment). */
-export const ADMIN_APP_URL =
-  import.meta.env.VITE_ADMIN_URL || (isLocal ? 'http://localhost:5175/' : 'https://sts-admin-roan.vercel.app/')
+export const API = resolveApiUrl()
+export const ADMIN_APP_URL = resolveAdminAppUrl()
 
 export const WHATSAPP = 'https://wa.me/96551022389'
 
