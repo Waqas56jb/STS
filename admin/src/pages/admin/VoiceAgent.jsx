@@ -172,8 +172,6 @@ function WebhookCard({ ctx }) {
   )
 }
 
-}
-
 /* ---------------- call history + transcripts ---------------- */
 function CallHistory({ reloadKey }) {
   const { isAr } = useAdminT()
