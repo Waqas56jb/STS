@@ -147,9 +147,14 @@ export function Payments({ paymentStats }) {
   const { t } = useAdminT()
   const [pays, setPays] = useState([])
   const [stats, setStats] = useState(paymentStats || null)
+  const [loading, setLoading] = useState(true)
 
   const load = () => {
-    apiGet('/admin/payments').then(setPays).catch(() => {})
+    setLoading(true)
+    apiGet('/admin/payments')
+      .then((rows) => setPays(Array.isArray(rows) ? rows : []))
+      .catch(() => setPays([]))
+      .finally(() => setLoading(false))
     if (!paymentStats) {
       apiGet('/admin/summary').then((s) => s?.payment_stats && setStats(s.payment_stats)).catch(() => {})
     }
@@ -185,12 +190,18 @@ export function Payments({ paymentStats }) {
             <tbody>
               {pays.map((p) => (
                 <tr key={p.ref}>
-                  <td><b>{p.ref}</b></td><td>{p.biz}</td><td>{p.meth}</td><td><b>{p.amt}</b></td><td>{p.date}</td>
-                  <td><span className={`badge ${stBadge(p.st)}`}>{p.st.toUpperCase()}</span></td>
+                  <td><b>{p.ref}</b></td><td>{p.biz || '—'}</td><td>{p.meth || '—'}</td><td><b>{p.amt}</b></td><td>{p.date || '—'}</td>
+                  <td><span className={`badge ${stBadge(p.st)}`}>{String(p.st || 'paid').toUpperCase()}</span></td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {loading && (
+            <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40, fontSize: 13 }}>{t('loading')}</div>
+          )}
+          {!loading && !pays.length && (
+            <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40, fontSize: 13 }}>{t('p_empty')}</div>
+          )}
         </div>
       </div>
     </>
@@ -201,10 +212,17 @@ export function Payments({ paymentStats }) {
 export function Invoices() {
   const { t } = useAdminT()
   const [invs, setInvs] = useState([])
+  const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [f, setF] = useState('all')
   const [viewKey, setViewKey] = useState(null)
-  useEffect(() => { apiGet('/admin/invoices').then(setInvs).catch(() => {}) }, [])
+  useEffect(() => {
+    setLoading(true)
+    apiGet('/admin/invoices')
+      .then((rows) => setInvs(Array.isArray(rows) ? rows : []))
+      .catch(() => setInvs([]))
+      .finally(() => setLoading(false))
+  }, [])
   const rows = invs.filter((i) => (f === 'all' || i.st === f) && (i.no + i.biz).toLowerCase().includes(q.toLowerCase()))
   return (
     <>
@@ -245,7 +263,10 @@ export function Invoices() {
               ))}
             </tbody>
           </table>
-          {!rows.length && (
+          {loading && (
+            <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40, fontSize: 13 }}>{t('loading')}</div>
+          )}
+          {!loading && !rows.length && (
             <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40, fontSize: 13 }}>{t('inv_empty')}</div>
           )}
         </div>

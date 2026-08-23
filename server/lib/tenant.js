@@ -6,8 +6,20 @@ export function platformAdminEmail() {
   return String(process.env.PLATFORM_ADMIN_EMAIL || 'admin@stsq8.com').toLowerCase()
 }
 
+/** Emails that get full platform access (requests, settings, all tenants). */
+export function platformAdminEmails() {
+  const emails = new Set([
+    platformAdminEmail(),
+    String(process.env.ADMIN_EMAIL || '').toLowerCase(),
+    ...(String(process.env.PLATFORM_ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)),
+  ])
+  emails.delete('')
+  return emails
+}
+
 export function isPlatformAdmin(user) {
-  return user?.role === 'admin' && String(user.email || '').toLowerCase() === platformAdminEmail()
+  if (user?.role !== 'admin') return false
+  return platformAdminEmails().has(String(user.email || '').toLowerCase())
 }
 
 /** Placeholder so `= any($1::uuid[])` still type-checks when an admin has no tenants. */
@@ -66,12 +78,13 @@ export async function allCustomerBusinessIds() {
   return rows.map((r) => r.id)
 }
 
-/** Scope for admin charts, payments, and user lists — never empty when platform has customers. */
+/** Scope for admin charts, payments, and user lists. */
 export async function adminReportBusinessIds(user) {
+  if (!user?.id || user.role !== 'admin') return []
+  if (isPlatformAdmin(user)) return allCustomerBusinessIds()
   const scoped = await customerBusinessIds(user)
   if (scoped.length) return scoped
-  if (user?.role === 'admin') return allCustomerBusinessIds()
-  return []
+  return allCustomerBusinessIds()
 }
 /** Customer tenants this admin owns — platform operator sees all customer tenants. */
 export async function customerBusinessIds(user) {
