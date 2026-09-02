@@ -161,7 +161,9 @@ const period = () => {
 
 async function run() {
   // 1. admin — private workspace (never share STS Official across admin logins)
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@gmail.com'
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@stsq8.com'
+  const adminName = process.env.ADMIN_NAME || 'STS Admin'
+  const adminPassword = process.env.ADMIN_PASSWORD || 'StsAdmin#2026!'
   let adminBiz = await one(`select id from sts_businesses where name='STS Official' limit 1`)
   if (!adminBiz) {
     adminBiz = await one(
@@ -170,10 +172,10 @@ async function run() {
   }
   await upsertUser({
     email: adminEmail,
-    name: process.env.ADMIN_NAME || 'STS Admin',
+    name: adminName,
     role: 'admin',
     business_id: adminBiz.id,
-    password: process.env.ADMIN_PASSWORD || 'admin@123!',
+    password: adminPassword,
   })
   const adminRow = await one(`select id from sts_users where email=$1`, [adminEmail.toLowerCase()])
   if (adminRow) {
@@ -329,7 +331,7 @@ async function run() {
   console.log('✓ platform settings seeded')
 
   console.log('\n✓ SEED COMPLETE')
-  console.log('  Admin login :', process.env.ADMIN_EMAIL, '/', process.env.ADMIN_PASSWORD)
+  console.log('  Admin login :', adminEmail, '/', adminPassword)
   console.log('  Client login: owner@alnoorperfumes.com /', CLIENT_PW)
 }
 

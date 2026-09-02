@@ -467,7 +467,8 @@ app.post('/api/requests', wrap(async (req, res) => {
   )
   // Notify platform support inbox (best-effort)
   const support = await one(`select value from sts_settings where key='support_email'`)
-  const notifyTo = support?.value || process.env.ADMIN_EMAIL || process.env.PLATFORM_ADMIN_EMAIL
+  const primaryAdmin = await one(`select email from sts_users where role='admin' order by created_at asc limit 1`)
+  const notifyTo = support?.value || primaryAdmin?.email
   sendAccessRequestNotify({
     to: notifyTo,
     businessName: business_name,

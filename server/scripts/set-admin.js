@@ -73,12 +73,7 @@ await pool.query(
 )
 
 console.log('')
-console.log('Admin login:')
+console.log('Admin login (database only — not stored in .env):')
 console.log('  email   :', email)
 console.log('  password:', password)
-console.log('')
-console.log('Also set on Railway / .env:')
-console.log(`  ADMIN_EMAIL=${email}`)
-console.log(`  ADMIN_PASSWORD=${password}`)
-console.log(`  PLATFORM_ADMIN_EMAIL=${email}`)
 await pool.end()

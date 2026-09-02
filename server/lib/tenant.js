@@ -2,11 +2,12 @@ import { pool, one, many } from '../db.js'
 
 const NONE = '00000000-0000-0000-0000-000000000000'
 
+/** Optional env override only — admin identity lives in sts_users. */
 export function platformAdminEmail() {
-  return String(process.env.PLATFORM_ADMIN_EMAIL || 'admin@stsq8.com').toLowerCase()
+  return String(process.env.PLATFORM_ADMIN_EMAIL || '').toLowerCase()
 }
 
-/** Emails that get full platform access (requests, settings, all tenants). */
+/** Optional allow-list from env. Empty = every role=admin user is a platform admin. */
 export function platformAdminEmails() {
   const emails = new Set([
     platformAdminEmail(),
@@ -19,7 +20,9 @@ export function platformAdminEmails() {
 
 export function isPlatformAdmin(user) {
   if (user?.role !== 'admin') return false
-  return platformAdminEmails().has(String(user.email || '').toLowerCase())
+  const emails = platformAdminEmails()
+  if (!emails.size) return true
+  return emails.has(String(user.email || '').toLowerCase())
 }
 
 /** Placeholder so `= any($1::uuid[])` still type-checks when an admin has no tenants. */
