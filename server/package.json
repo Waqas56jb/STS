@@ -10,7 +10,9 @@
     "dev": "node --watch --watch-path=./server.js --watch-path=./lib server.js",
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed.js",
-    "setup": "node scripts/migrate.js && node scripts/seed.js"
+    "setup": "node scripts/migrate.js && node scripts/seed.js",
+    "purge-customers": "node scripts/purge-customers.js",
+    "set-admin": "node scripts/set-admin.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",
@@ -21,6 +23,7 @@
     "jsonwebtoken": "^9.0.2",
     "mammoth": "^1.12.1",
     "multer": "^2.2.0",
+    "nodemailer": "^6.10.1",
     "pdf-parse": "^2.4.5",
     "pg": "^8.13.1",
     "pino": "^10.3.1",

@@ -61,6 +61,8 @@ export async function ensureUserWorkspace(user) {
 
 export async function adminOwns(user, businessId) {
   if (!user || user.role !== 'admin' || !businessId) return false
+  // Platform admins can mutate any tenant (list/report already showed them all).
+  if (isPlatformAdmin(user)) return true
   if (user.business_id && String(user.business_id) === String(businessId)) return true
   const row = await one(
     `select id from sts_businesses where id=$1 and owner_user_id=$2`,

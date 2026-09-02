@@ -181,9 +181,13 @@ export function TrainingStudio({
 
   async function importUrl() {
     if (!url.trim()) return
-    await endpoints.createKnowledge({ type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL', channel: scope })
-    setUrl('')
-    await withLearn(async () => { toast(); await load() })
+    try {
+      const row = await endpoints.createKnowledge({ type: 'url', title: url.trim(), source_url: url.trim(), meta: 'Imported from URL', channel: scope })
+      setUrl('')
+      if (row?.status === 'error') toast(row.meta || t('save_failed'))
+      else await withLearn(async () => { toast(); await load() })
+      await load()
+    } catch (e) { toast(e.message || t('save_failed')) }
   }
   async function addQa() {
     if (!q.trim()) return

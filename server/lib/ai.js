@@ -1,6 +1,7 @@
 import { one, many } from '../db.js'
 import { decryptJSON } from './crypto.js'
 import { formatKnowledgeForPrompt } from './kbPrompt.js'
+import { selectRelevantKnowledge } from './knowledge.js'
 import { formatMemoryForPrompt } from './memory.js'
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
@@ -69,11 +70,13 @@ export async function generateReply({
   businessId, businessName, channel = 'whatsapp', userText, history = [],
   memory = null, customerName = null,
 }) {
-  const [bot, kb, key] = await Promise.all([
+  const [bot, kbRows, key] = await Promise.all([
     one(`select greeting, tone, language, rules from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, botChannel(channel)]),
-    many(`select title, content, source_url from sts_knowledge_sources where business_id=$1 and status='trained' and (${KB_SCOPE}) order by created_at desc limit 80`, [businessId, channel]),
+    many(`select type, title, content, source_url, meta from sts_knowledge_sources where business_id=$1 and status='trained' and (${KB_SCOPE}) order by created_at desc limit 120`, [businessId, channel]),
     resolveOpenAIKey(),
   ])
+
+  const kb = selectRelevantKnowledge(kbRows, userText)
 
   const fallback = bot?.greeting || 'Thanks for your message! How can I help you today?'
   if (!key) {

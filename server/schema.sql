@@ -74,6 +74,9 @@ create table if not exists sts_users (
 create index if not exists idx_sts_users_business on sts_users(business_id);
 -- add password_enc to already-created databases (idempotent)
 alter table sts_users add column if not exists password_enc text;
+alter table sts_users add column if not exists email_verified_at timestamptz;
+alter table sts_users add column if not exists email_verify_token text;
+alter table sts_users add column if not exists email_verify_expires timestamptz;
 
 -- ---------- access requests (landing page form) ----------
 create table if not exists sts_access_requests (

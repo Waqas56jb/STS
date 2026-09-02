@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { useLang } from '../i18n/LangContext'
 import { useAdminT } from '../i18n/admin'
-import { apiGet, apiPostAuth, apiPatch, clearSession } from '../lib/api'
+import { apiGet, apiPostAuth, apiPatch, apiDelete, clearSession } from '../lib/api'
 import { ToastProvider, useToast } from './ui'
 import { planOptions } from '../data/adminDemo'
 import {
@@ -116,6 +116,29 @@ function AdminInner({ onLogout }) {
     done()
   }
 
+  async function deleteBiz(u) {
+    if (!u?.id) return
+    if (!window.confirm(t('cred_delete_warn'))) return
+    try {
+      await apiDelete(`/admin/businesses/${u.id}`)
+      toast(t('toast_account_deleted'))
+      await reload()
+    } catch {
+      toast(t('toast_delete_failed'))
+    }
+  }
+
+  async function clearAllBiz() {
+    if (!window.confirm(t('clear_all_biz_warn'))) return
+    try {
+      const r = await apiDelete('/admin/businesses')
+      toast(t('toast_cleared').replace('{n}', String(r?.deleted ?? 0)))
+      await reload()
+    } catch {
+      toast(t('toast_delete_failed'))
+    }
+  }
+
   async function createBiz(e) {
     e.preventDefault()
     const f = e.target
@@ -139,7 +162,7 @@ function AdminInner({ onLogout }) {
   function renderView() {
     switch (view) {
       case 'requests': return <Requests requests={requests} onApprove={approveReq} onReject={rejectReq} />
-      case 'users': return <Users users={users} onToggle={toggleSuspend} onConnections={setConnBiz} onCredentials={setCredBiz} />
+      case 'users': return <Users users={users} onToggle={toggleSuspend} onConnections={setConnBiz} onCredentials={setCredBiz} onDelete={deleteBiz} onClearAll={clearAllBiz} />
       case 'payments': return <Payments paymentStats={summary.payment_stats} />
       case 'invoices': return <Invoices />
       case 'plans': return <Plans />

@@ -27,7 +27,7 @@ import {
 } from './lib/siteConfig.js'
 import {
   ensureUserWorkspace, adminOwns, customerBusinessIds, adminReportBusinessIds, allowedBusinessIds,
-  emailTaken, idList, isPlatformAdmin,
+  emailTaken, idList, isPlatformAdmin, allCustomerBusinessIds,
 } from './lib/tenant.js'
 import multer from 'multer'
 import { extractDocumentText, isSupportedTrainingFile } from './lib/extractText.js'
@@ -40,6 +40,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { publicBaseUrl, publicWsUrl, corsOrigins } from './lib/publicUrl.js'
+import { fetchUrlText } from './lib/knowledge.js'
+import {
+  sendAccountReadyEmail, sendAccessRequestNotify, sendVerificationEmail, mailConfigured,
+} from './lib/mail.js'
+import crypto from 'node:crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -175,6 +180,7 @@ app.post('/api/auth/login', wrap(async (req, res) => {
     user: {
       id: user.id, email: user.email, name: user.name, role: user.role,
       business_id: user.business_id, business_name: user.business_name, plan: user.plan_code,
+      email_verified: Boolean(user.email_verified_at),
     },
   })
 }))
@@ -183,6 +189,7 @@ app.get('/api/auth/me', auth, wrap(async (req, res) => {
   res.json({
     id: req.user.id, email: req.user.email, name: req.user.name, role: req.user.role,
     business_id: req.user.business_id, business_name: req.user.business_name, plan: req.user.plan_code,
+    email_verified: Boolean(req.user.email_verified_at),
   })
 }))
 
@@ -458,7 +465,54 @@ app.post('/api/requests', wrap(async (req, res) => {
      values ($1,$2,$3,$4,$5,$6) returning id`,
     [business_name, contact_name || null, email, whatsapp || null, interested_plan || null, message || null],
   )
+  // Notify platform support inbox (best-effort)
+  const support = await one(`select value from sts_settings where key='support_email'`)
+  const notifyTo = support?.value || process.env.ADMIN_EMAIL || process.env.PLATFORM_ADMIN_EMAIL
+  sendAccessRequestNotify({
+    to: notifyTo,
+    businessName: business_name,
+    contactName: contact_name,
+    email,
+    message,
+  }).catch(() => {})
   res.status(201).json({ ok: true, id: row.id })
+}))
+
+/** Confirm email via token from verification link. */
+app.get('/api/auth/verify-email', wrap(async (req, res) => {
+  const token = String(req.query.token || '').trim()
+  if (!token) return res.status(400).json({ error: 'token required' })
+  const user = await one(
+    `select id from sts_users
+      where email_verify_token=$1 and email_verify_expires > now()`,
+    [token],
+  )
+  if (!user) return res.status(400).json({ error: 'Invalid or expired verification link' })
+  await pool.query(
+    `update sts_users
+        set email_verified_at=now(), email_verify_token=null, email_verify_expires=null
+      where id=$1`,
+    [user.id],
+  )
+  res.json({ ok: true })
+}))
+
+/** Resend verification email for the logged-in user. */
+app.post('/api/auth/send-verification', auth, wrap(async (req, res) => {
+  if (req.user.email_verified_at) return res.json({ ok: true, already: true })
+  if (!mailConfigured()) return res.status(503).json({ error: 'Email sending is not configured on the server' })
+  const token = crypto.randomBytes(24).toString('hex')
+  await pool.query(
+    `update sts_users set email_verify_token=$2, email_verify_expires=now() + interval '48 hours' where id=$1`,
+    [req.user.id, token],
+  )
+  const result = await sendVerificationEmail({ to: req.user.email, name: req.user.name, token })
+  if (result?.error) return res.status(502).json({ error: result.error })
+  res.json({ ok: true })
+}))
+
+app.get('/api/admin/mail-status', auth, adminOnly, wrap(async (_req, res) => {
+  res.json({ configured: mailConfigured(), from: process.env.MAIL_FROM || process.env.RESEND_FROM || null })
 }))
 
 app.get('/api/plans', wrap(async (_req, res) => {
@@ -809,10 +863,23 @@ app.post('/api/knowledge', auth, wrap(async (req, res) => {
   if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
   const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
+  let body = content || null
+  let status = 'trained'
+  let metaOut = meta || null
+  if ((type === 'url' || source_url) && source_url && !body) {
+    try {
+      body = await fetchUrlText(source_url)
+      metaOut = metaOut || `Imported from URL · ${body.length} chars`
+    } catch (e) {
+      status = 'error'
+      metaOut = e.message || 'URL import failed'
+      body = null
+    }
+  }
   const row = await one(
     `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
-     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning ${KB_COLS}`,
-    [biz(req), type || 'qa', title, content || null, source_url || null, meta || null, kbChannel(channel)],
+     values ($1,$2,$3,$4,$5,$6,$7,$8) returning ${KB_COLS}`,
+    [biz(req), type || 'qa', title, body, source_url || null, metaOut, kbChannel(channel), status],
   )
   res.status(201).json(row)
 }))
@@ -916,22 +983,39 @@ app.post('/api/admin/requests/:id/approve', auth, adminOnly, wrap(async (req, re
   const reqRow = await one(`select * from sts_access_requests where id=$1`, [req.params.id])
   if (!reqRow) return res.status(404).json({ error: 'Not found' })
   if (await emailTaken(reqRow.email)) return res.status(409).json({ error: 'That email already belongs to another account' })
+  const plainPw = 'Sts@2026!'
   const created = await tx(async (c) => {
     const b = (await c.query(
       `insert into sts_businesses (name, whatsapp, plan_code, status, owner_user_id) values ($1,$2,'free','free',$3) returning id`,
       [reqRow.business_name, reqRow.whatsapp, req.user.id],
     )).rows[0]
-    const plainPw = 'Sts@2026!'
     const tempPw = await hashPassword(plainPw)
+    const verifyToken = crypto.randomBytes(24).toString('hex')
     await c.query(
-      `insert into sts_users (email, name, role, business_id, password_hash, password_enc)
-       values ($1,$2,'client',$3,$4,$5)`,
-      [reqRow.email.toLowerCase(), reqRow.contact_name || reqRow.business_name, b.id, tempPw, encryptJSON({ p: plainPw })],
+      `insert into sts_users (email, name, role, business_id, password_hash, password_enc,
+                              email_verify_token, email_verify_expires)
+       values ($1,$2,'client',$3,$4,$5,$6, now() + interval '48 hours')`,
+      [reqRow.email.toLowerCase(), reqRow.contact_name || reqRow.business_name, b.id, tempPw, encryptJSON({ p: plainPw }), verifyToken],
     )
     await c.query(`update sts_access_requests set status='approved' where id=$1`, [req.params.id])
-    return b
+    return { b, verifyToken }
   })
-  res.json({ ok: true, business_id: created.id, email: reqRow.email.toLowerCase(), password: 'Sts@2026!' })
+  const email = reqRow.email.toLowerCase()
+  // Credentials + verification (best-effort; never block approve)
+  await sendAccountReadyEmail({
+    to: email,
+    name: reqRow.contact_name,
+    password: plainPw,
+    businessName: reqRow.business_name,
+  }).catch(() => {})
+  if (mailConfigured()) {
+    await sendVerificationEmail({
+      to: email,
+      name: reqRow.contact_name,
+      token: created.verifyToken,
+    }).catch(() => {})
+  }
+  res.json({ ok: true, business_id: created.b.id, email, password: plainPw, email_sent: mailConfigured() })
 }))
 
 app.post('/api/admin/requests/:id/reject', auth, adminOnly, wrap(async (req, res) => {
@@ -965,6 +1049,7 @@ app.post('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
   const plan = await one(`select * from sts_plans where code=$1`, [plan_code || 'free'])
   const status = plan_code === 'free' || !plan ? 'free' : 'paid'
   const pw = (password && String(password).trim()) || 'Sts@2026!'
+  const verifyToken = crypto.randomBytes(24).toString('hex')
   const created = await tx(async (c) => {
     const b = (await c.query(
       `insert into sts_businesses (name, whatsapp, plan_code, status, mrr, channels, owner_user_id)
@@ -973,12 +1058,27 @@ app.post('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
     )).rows[0]
     const hash = await hashPassword(pw)
     await c.query(
-      `insert into sts_users (email, name, role, business_id, password_hash, password_enc) values ($1,$2,'client',$3,$4,$5)`,
-      [email.toLowerCase(), owner_name || business_name, b.id, hash, encryptJSON({ p: pw })],
+      `insert into sts_users (email, name, role, business_id, password_hash, password_enc,
+                              email_verify_token, email_verify_expires)
+       values ($1,$2,'client',$3,$4,$5,$6, now() + interval '48 hours')`,
+      [email.toLowerCase(), owner_name || business_name, b.id, hash, encryptJSON({ p: pw }), verifyToken],
     )
     return b
   })
-  res.status(201).json({ ok: true, id: created.id, email: email.toLowerCase(), password: pw })
+  await sendAccountReadyEmail({
+    to: email.toLowerCase(),
+    name: owner_name,
+    password: pw,
+    businessName: business_name,
+  }).catch(() => {})
+  if (mailConfigured()) {
+    await sendVerificationEmail({
+      to: email.toLowerCase(),
+      name: owner_name,
+      token: verifyToken,
+    }).catch(() => {})
+  }
+  res.status(201).json({ ok: true, id: created.id, email: email.toLowerCase(), password: pw, email_sent: mailConfigured() })
 }))
 
 app.patch('/api/admin/businesses/:id', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
@@ -1027,6 +1127,22 @@ app.delete('/api/admin/businesses/:id', auth, adminOnly, adminOwnsBiz, wrap(asyn
   }
   await pool.query(`delete from sts_businesses where id=$1`, [req.params.id])
   res.json({ ok: true })
+}))
+
+/** Wipe all demo / customer tenants (keeps admin workspaces). Platform admin only. */
+app.delete('/api/admin/businesses', auth, adminOnly, wrap(async (req, res) => {
+  if (!isPlatformAdmin(req.user)) {
+    return res.status(403).json({ error: 'Platform admin only' })
+  }
+  const ids = await allCustomerBusinessIds()
+  let deleted = 0
+  if (ids.length) {
+    const r = await pool.query(`delete from sts_businesses where id=any($1::uuid[])`, [ids])
+    deleted = r.rowCount || ids.length
+  }
+  // Clear leftover seed access requests
+  await pool.query(`delete from sts_access_requests where status='new'`)
+  res.json({ ok: true, deleted })
 }))
 
 app.get('/api/admin/payments', auth, adminOnly, wrap(async (req, res) => {
@@ -1476,10 +1592,23 @@ app.get('/api/admin/businesses/:id/knowledge', auth, adminOnly, adminOwnsBiz, wr
 app.post('/api/admin/businesses/:id/knowledge', auth, adminOnly, adminOwnsBiz, wrap(async (req, res) => {
   const { type, title, content, source_url, meta, channel } = req.body || {}
   if (!title) return res.status(400).json({ error: 'title required' })
+  let body = content || null
+  let status = 'trained'
+  let metaOut = meta || null
+  if ((type === 'url' || source_url) && source_url && !body) {
+    try {
+      body = await fetchUrlText(source_url)
+      metaOut = metaOut || `Imported from URL · ${body.length} chars`
+    } catch (e) {
+      status = 'error'
+      metaOut = e.message || 'URL import failed'
+      body = null
+    }
+  }
   const row = await one(
     `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
-     values ($1,$2,$3,$4,$5,$6,$7,'trained') returning ${KB_COLS}`,
-    [req.params.id, type || 'qa', title, content || null, source_url || null, meta || null, kbChannel(channel)],
+     values ($1,$2,$3,$4,$5,$6,$7,$8) returning ${KB_COLS}`,
+    [req.params.id, type || 'qa', title, body, source_url || null, metaOut, kbChannel(channel), status],
   )
   res.status(201).json(row)
 }))

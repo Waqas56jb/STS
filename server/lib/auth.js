@@ -31,7 +31,7 @@ export async function auth(req, res, next) {
 
     const payload = jwt.verify(token, JWT_SECRET)
     const user = await one(
-      `select u.id, u.email, u.name, u.role, u.business_id,
+      `select u.id, u.email, u.name, u.role, u.business_id, u.email_verified_at,
               b.name as business_name, b.plan_code, b.status as business_status
          from sts_users u
          left join sts_businesses b on b.id = u.business_id
@@ -62,7 +62,7 @@ export async function userFromToken(token) {
   try {
     const payload = jwt.verify(token, JWT_SECRET)
     const user = await one(
-      `select u.id, u.email, u.name, u.role, u.business_id,
+      `select u.id, u.email, u.name, u.role, u.business_id, u.email_verified_at,
               b.name as business_name, b.plan_code, b.status as business_status
          from sts_users u
          left join sts_businesses b on b.id = u.business_id

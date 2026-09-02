@@ -1,6 +1,6 @@
 /**
  * Format trained knowledge for the chatbot / voice prompts.
- * Long uploaded files are clipped so the model still sees every recent source.
+ * Prefer pre-ranked snippets from selectRelevantKnowledge when available.
  */
 export function formatKnowledgeForPrompt(kb = [], { maxEach = 8000, maxTotal = 28000 } = {}) {
   if (!kb.length) return '(no knowledge base entries yet)'

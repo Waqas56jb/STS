@@ -80,7 +80,7 @@ export function Requests({ requests, onApprove, onReject }) {
 }
 
 /* ===================== USERS ===================== */
-export function Users({ users, onToggle, onConnections, onCredentials }) {
+export function Users({ users, onToggle, onConnections, onCredentials, onDelete, onClearAll }) {
   const { t } = useAdminT()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -99,6 +99,17 @@ export function Users({ users, onToggle, onConnections, onCredentials }) {
           <option value="free">{t('free')}</option>
           <option value="suspended">{t('susp')}</option>
         </select>
+        {onClearAll && users.length > 0 && (
+          <button
+            type="button"
+            className="btn btn-r"
+            style={{ padding: '8px 12px', marginInlineStart: 'auto' }}
+            onClick={onClearAll}
+            title={t('clear_all_biz')}
+          >
+            <Icon name="trash-2" size={14} />{t('clear_all_biz')}
+          </button>
+        )}
       </div>
       <div className="tbl">
         <table>
@@ -114,7 +125,7 @@ export function Users({ users, onToggle, onConnections, onCredentials }) {
                 </td>
                 <td>{u.plan}</td>
                 <td>
-                  {u.ch.map((c) => (
+                  {(u.ch || []).map((c) => (
                     <Icon key={c} name={chIco[c][1]} style={{ width: 15, color: chIco[c][0], marginInlineEnd: 5, display: 'inline' }} />
                   ))}
                 </td>
@@ -127,14 +138,20 @@ export function Users({ users, onToggle, onConnections, onCredentials }) {
                   <button className="btn btn-o" style={{ padding: '6px 11px' }} onClick={() => onCredentials?.(u)} title={t('credentials')}>
                     <Icon name="key-round" size={14} />
                   </button>
-                  <button className={`btn ${u.status === 'suspended' ? 'btn-g' : 'btn-r'}`} style={{ padding: '6px 11px' }} onClick={() => onToggle(u.id)} title={u.status === 'suspended' ? t('activate') : t('suspend')}>
+                  <button className={`btn ${u.status === 'suspended' ? 'btn-g' : 'btn-o'}`} style={{ padding: '6px 11px' }} onClick={() => onToggle(u.id)} title={u.status === 'suspended' ? t('activate') : t('suspend')}>
                     <Icon name={u.status === 'suspended' ? 'play' : 'pause'} size={14} />
+                  </button>
+                  <button className="btn btn-r" style={{ padding: '6px 11px' }} onClick={() => onDelete?.(u)} title={t('cred_delete_account')}>
+                    <Icon name="trash-2" size={14} />
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {!rows.length && (
+          <div style={{ textAlign: 'center', color: 'var(--mut)', padding: 40, fontSize: 13 }}>{t('users_empty')}</div>
+        )}
       </div>
     </div>
   )
