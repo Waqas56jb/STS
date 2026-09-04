@@ -406,11 +406,28 @@ export function ChatMenu({ businessId: fixedBizId = null, compact = false, apiBa
         </div>
 
         <aside className="cm-preview-col">
-          <div className="card cm-phone">
-            <div className="cm-phone-bar">WhatsApp preview</div>
+          <div className="cm-phone">
+            <div className="cm-phone-bar">
+              <span className="cm-phone-dot" />
+              WhatsApp preview
+            </div>
             <div className="cm-phone-body">
-              <div className="cm-bubble out">{preview.greeting || 'Greeting…'}</div>
-              <div className="cm-bubble out" style={{ whiteSpace: 'pre-wrap' }}>{preview.menuText || 'Menu…'}</div>
+              <div
+                className="cm-bubble cm-biz"
+                style={{ color: '#111b21', background: '#ffffff', WebkitTextFillColor: '#111b21' }}
+              >
+                {preview.greeting || 'Greeting…'}
+              </div>
+              <div
+                className="cm-bubble cm-biz"
+                style={{ color: '#111b21', background: '#ffffff', WebkitTextFillColor: '#111b21' }}
+              >
+                {(preview.menuText || 'Menu…').split('\n').map((line, idx) => (
+                  <div key={idx} style={{ color: '#111b21', minHeight: line ? undefined : 8 }}>
+                    {line || '\u00A0'}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           {!apiBase?.startsWith('/chat-menu') && (
