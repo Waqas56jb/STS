@@ -44,5 +44,7 @@ export async function ensureTrainingSchema() {
   await pool.query(`alter table sts_users add column if not exists email_verified_at timestamptz`)
   await pool.query(`alter table sts_users add column if not exists email_verify_token text`)
   await pool.query(`alter table sts_users add column if not exists email_verify_expires timestamptz`)
+  const { ensureChatMenuSchema } = await import('./chatMenu.js')
+  await ensureChatMenuSchema()
   console.log('✓ training schema + tenant isolation + customer memory ready')
 }

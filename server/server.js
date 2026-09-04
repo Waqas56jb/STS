@@ -37,6 +37,7 @@ import {
 } from './lib/vonage.js'
 import http from 'node:http'
 import path from 'node:path'
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { publicBaseUrl, publicWsUrl, corsOrigins } from './lib/publicUrl.js'
@@ -252,7 +253,7 @@ app.post('/api/webhooks/whatsapp', wrap(async (req, res) => {
 }))
 
 /** Store inbound message + AI reply with long-term customer memory (all chat channels). */
-async function handleInboundChat({ businessId, channel, customerHandle, customerName, text, messageId, sendOutbound, previewText, inboundBody, beginPresence }) {
+async function handleInboundChat({ businessId, channel, customerHandle, customerName, text, messageId, sendOutbound, previewText, inboundBody, beginPresence, skipAi = false, aiInstruction = null, whatsappCtx = null }) {
   const bizRow = await one(`select name from sts_businesses where id=$1`, [businessId])
   const memKey = customerKey(customerHandle, channel)
   const sinceLabel = new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
@@ -299,10 +300,35 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
     [businessId, customerName || customerHandle, customerHandle, channel === 'website' ? 'web' : channel],
   )
 
+  // WhatsApp Chat Menu (greeting + options) before AI
+  if (channel === 'whatsapp' && whatsappCtx && !skipAi) {
+    try {
+      const { processChatMenuInbound } = await import('./lib/chatMenu.js')
+      const menuResult = await processChatMenuInbound({
+        businessId,
+        handle: customerHandle,
+        text,
+        provider: whatsappCtx.provider,
+        creds: whatsappCtx.creds,
+        to: whatsappCtx.to,
+      })
+      if (menuResult.handled && !menuResult.continueAi) {
+        await pool.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, '📋 Chat menu'])
+        return { conversationId: conv.id, reply: null, menu: true }
+      }
+      if (menuResult.aiInstruction) aiInstruction = menuResult.aiInstruction
+      if (menuResult.continueAi && menuResult.handled) {
+        // Menu sent an opener; still allow AI reply for start_ai / custom_ai
+      }
+    } catch (e) {
+      console.error('[chat-menu]', e.message)
+    }
+  }
+
   const botCh = channel === 'website' ? 'web' : channel
   const bot = await one(`select auto_reply from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, botCh])
   const autoReply = bot ? bot.auto_reply : true
-  if (!autoReply || conv.mode === 'human') {
+  if (skipAi || !autoReply || conv.mode === 'human') {
     return { conversationId: conv.id, reply: null }
   }
 
@@ -319,6 +345,7 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
       history,
       memory,
       customerName: customerName || memory?.customer_name,
+      aiInstruction,
     })
   } catch (e) {
     await endPresence()
@@ -350,7 +377,7 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
   return { conversationId: conv.id, reply }
 }
 
-/** WhatsApp wrapper — same memory engine as web/instagram. Voice notes reply with voice (QR only). */
+/** WhatsApp wrapper — same memory engine; chat menu runs inside handleInboundChat. */
 async function handleInboundWhatsApp(businessId, creds, msg) {
   const provider = resolveWhatsAppProvider(creds)
   const replyAsVoice = !!(msg.isVoice && provider === 'qr')
@@ -364,6 +391,7 @@ async function handleInboundWhatsApp(businessId, creds, msg) {
     previewText: msg.previewText,
     inboundBody: msg.inboundBody,
     messageId: msg.messageId,
+    whatsappCtx: { provider, creds, to: dest },
     beginPresence: provider === 'qr'
       ? () => beginQrPresence(businessId, dest, replyAsVoice ? 'recording' : 'composing')
       : undefined,
@@ -372,7 +400,7 @@ async function handleInboundWhatsApp(businessId, creds, msg) {
         await sendWhatsAppByProvider({
           provider,
           businessId,
-          to: msg.jid || msg.from,
+          to: dest,
           text: reply,
           creds,
           asVoice: replyAsVoice,
@@ -383,7 +411,7 @@ async function handleInboundWhatsApp(businessId, creds, msg) {
         await sendWhatsAppByProvider({
           provider,
           businessId,
-          to: msg.jid || msg.from,
+          to: dest,
           text: reply,
           creds,
           asVoice: false,
@@ -764,6 +792,14 @@ const BOT_DEFAULTS = {
   greeting: '', tone: 'friendly', language: 'auto',
   widget_color: '#0FBE8F', widget_position: 'bottom_right', rules: '',
   tts_voice: 'alloy',
+  primary_language: 'ar_en',
+  arabic_dialect: 'kuwaiti',
+  dialect_behavior: 'professional',
+  auto_match_dialect: true,
+  force_business_dialect: false,
+  formality: 'friendly',
+  preferred_words: '',
+  avoid_words: '',
 }
 const toBotChannel = (c) => (c === 'website' ? 'web' : c)
 
@@ -802,6 +838,27 @@ async function upsertBotSettings(businessId, channel, b = {}) {
       args.slice(0, 10),
     )
   }
+  // Dialect / language settings (best-effort if columns exist)
+  try {
+    row = await one(
+      `update sts_bot_settings set
+         primary_language=$3, arabic_dialect=$4, dialect_behavior=$5,
+         auto_match_dialect=$6, force_business_dialect=$7, formality=$8,
+         preferred_words=$9, avoid_words=$10, updated_at=now()
+       where business_id=$1 and channel=$2 returning *`,
+      [
+        businessId, ch,
+        b.primary_language ?? row.primary_language ?? 'ar_en',
+        b.arabic_dialect ?? row.arabic_dialect ?? 'kuwaiti',
+        b.dialect_behavior ?? row.dialect_behavior ?? 'professional',
+        b.auto_match_dialect ?? row.auto_match_dialect ?? true,
+        b.force_business_dialect ?? row.force_business_dialect ?? false,
+        b.formality ?? row.formality ?? 'friendly',
+        b.preferred_words ?? row.preferred_words ?? '',
+        b.avoid_words ?? row.avoid_words ?? '',
+      ],
+    )
+  } catch { /* columns may lag one boot */ }
   await persistAgentRulesKnowledge(businessId, channel, b).catch((err) => console.error('persist rules kb:', err.message))
   return row
 }
@@ -875,6 +932,93 @@ app.post('/api/admin/tts/preview', auth, adminOnly, wrap(async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message || 'Preview failed' })
   }
+}))
+
+/* ---------- WhatsApp Chat Menu ---------- */
+async function resolveChatMenuBusiness(req) {
+  const qid = req.query.business_id || req.body?.business_id
+  if (qid) {
+    if (!(await adminOwns(req.user, qid))) return null
+    return qid
+  }
+  return adminWorkspace(req) || req.user.business_id
+}
+
+app.get('/api/admin/chat-menu', auth, adminOnly, wrap(async (req, res) => {
+  const { getOrCreateMenu } = await import('./lib/chatMenu.js')
+  const { ACTION_TYPES, RESET_PRESETS } = await import('./lib/chatMenuShared.js')
+  const businessId = await resolveChatMenuBusiness(req)
+  if (!businessId) return res.status(404).json({ error: 'Business not found' })
+  const data = await getOrCreateMenu(businessId)
+  res.json({ ...data, action_types: ACTION_TYPES, reset_presets: RESET_PRESETS, business_id: businessId })
+}))
+
+app.put('/api/admin/chat-menu', auth, adminOnly, wrap(async (req, res) => {
+  const { saveMenu } = await import('./lib/chatMenu.js')
+  const businessId = await resolveChatMenuBusiness(req)
+  if (!businessId) return res.status(404).json({ error: 'Business not found' })
+  const data = await saveMenu(businessId, req.body || {})
+  res.json({ ...data, business_id: businessId })
+}))
+
+app.post('/api/admin/chat-menu/upload', auth, adminOnly, multer({
+  storage: multer.diskStorage({
+    destination: (req, _file, cb) => {
+      const bizId = req.query.business_id || req.user.business_id
+      const dir = path.join(__dirname, 'uploads', 'chat-menu', String(bizId || 'misc'))
+      fs.mkdirSync(dir, { recursive: true })
+      cb(null, dir)
+    },
+    filename: (_req, file, cb) => {
+      const safe = String(file.originalname || 'file').replace(/[^\w.\-]+/g, '_').slice(0, 80)
+      cb(null, `${Date.now()}_${safe}`)
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+}).single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'file required' })
+  const bizId = req.query.business_id || req.user.business_id
+  const rel = path.join(String(bizId || 'misc'), req.file.filename)
+  res.json({ ok: true, path: rel.replace(/\\/g, '/'), name: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype })
+}))
+
+app.post('/api/admin/chat-menu/test', auth, adminOnly, wrap(async (req, res) => {
+  const { sendTestMenuSequence } = await import('./lib/chatMenu.js')
+  const businessId = await resolveChatMenuBusiness(req)
+  if (!businessId) return res.status(404).json({ error: 'Business not found' })
+  const to = String(req.body?.to || '').replace(/\D/g, '')
+  if (to.length < 8) return res.status(400).json({ error: 'WhatsApp number required' })
+  const creds = (await getChannelCreds(businessId, 'whatsapp')) || {}
+  const provider = resolveWhatsAppProvider(creds)
+  await sendTestMenuSequence({ businessId, to, provider, creds })
+  res.json({ ok: true })
+}))
+
+app.post('/api/admin/chat-menu/reset-contact', auth, adminOnly, wrap(async (req, res) => {
+  const { resetContactMenu } = await import('./lib/chatMenu.js')
+  const businessId = await resolveChatMenuBusiness(req)
+  if (!businessId) return res.status(404).json({ error: 'Business not found' })
+  await resetContactMenu(businessId, String(req.body?.handle || ''))
+  res.json({ ok: true })
+}))
+
+app.get('/api/admin/dialect-options', auth, adminOnly, wrap(async (_req, res) => {
+  const { ARABIC_DIALECTS, DIALECT_BEHAVIORS, FORMALITY_LEVELS } = await import('./lib/chatMenuShared.js')
+  res.json({ dialects: ARABIC_DIALECTS, behaviors: DIALECT_BEHAVIORS, formality: FORMALITY_LEVELS })
+}))
+
+app.post('/api/admin/dialect-preview', auth, adminOnly, wrap(async (req, res) => {
+  const businessId = req.body?.business_id || adminWorkspace(req) || req.user.business_id
+  const text = String(req.body?.text || '').trim()
+  if (!text) return res.status(400).json({ error: 'text required' })
+  const reply = await generateReply({
+    businessId,
+    businessName: 'Preview',
+    channel: 'whatsapp',
+    userText: text,
+    history: [],
+  })
+  res.json({ reply })
 }))
 
 // Knowledge base (per-agent scoped via `channel`; 'all' = shared)

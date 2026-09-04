@@ -43,6 +43,9 @@ const emptyProfile = { name: '', about: '', hours: '', phone: '', email: '', add
 const emptyBot = {
   auto_reply: true, human_handoff: true, after_hours_only: false,
   greeting: '', tone: 'friendly', language: 'auto', tts_voice: 'alloy',
+  primary_language: 'ar_en', arabic_dialect: 'kuwaiti', dialect_behavior: 'professional',
+  auto_match_dialect: true, force_business_dialect: false, formality: 'friendly',
+  preferred_words: '', avoid_words: '',
   widget_color: '#0FBE8F', widget_position: 'bottom_right', rules: '',
 }
 
@@ -355,6 +358,79 @@ export function TrainingStudio({
                   fail: t('tts_fail'),
                 }}
               />
+            )}
+            {(agent === 'whatsapp' || agent === 'voice') && (
+              <div className="dialect-box">
+                <div className="train-step" style={{ marginBottom: 10 }}>
+                  <span className="train-num">★</span>
+                  <div className="train-step-copy">
+                    <b>Language & Dialect</b>
+                    <small>Choose how the AI speaks and which dialect it should use with customers.</small>
+                  </div>
+                </div>
+                <div className="train-grid">
+                  <div className="field"><label>Primary language</label>
+                    <select value={bot.primary_language || 'ar_en'} onChange={(e) => setB('primary_language', e.target.value)}>
+                      <option value="ar">Arabic</option>
+                      <option value="en">English</option>
+                      <option value="ar_en">Arabic & English</option>
+                      <option value="multi">Multilingual</option>
+                      <option value="auto">Auto (match customer)</option>
+                    </select>
+                  </div>
+                  <div className="field"><label>Arabic dialect</label>
+                    <select value={bot.arabic_dialect || 'kuwaiti'} onChange={(e) => setB('arabic_dialect', e.target.value)}>
+                      <option value="msa">Modern Standard Arabic — الفصحى</option>
+                      <option value="gulf">Gulf Arabic — خليجية</option>
+                      <option value="kuwaiti">Kuwaiti Arabic — كويتية</option>
+                      <option value="qatari">Qatari Arabic — قطرية</option>
+                      <option value="saudi">Saudi Arabic — سعودية</option>
+                      <option value="emirati">Emirati Arabic — إماراتية</option>
+                      <option value="bahraini">Bahraini Arabic — بحرينية</option>
+                      <option value="omani">Omani Arabic — عُمانية</option>
+                      <option value="iraqi">Iraqi Arabic — عراقية</option>
+                      <option value="egyptian">Egyptian Arabic — مصرية</option>
+                      <option value="levantine">Levantine Arabic — شامية</option>
+                      <option value="jordanian">Jordanian Arabic — أردنية</option>
+                      <option value="lebanese">Lebanese Arabic — لبنانية</option>
+                      <option value="palestinian">Palestinian Arabic — فلسطينية</option>
+                      <option value="syrian">Syrian Arabic — سورية</option>
+                      <option value="moroccan">Moroccan Arabic — مغربية</option>
+                      <option value="tunisian">Tunisian Arabic — تونسية</option>
+                      <option value="algerian">Algerian Arabic — جزائرية</option>
+                      <option value="auto">Automatic — Detect customer dialect</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="train-grid">
+                  <div className="field"><label>How should the AI use the dialect?</label>
+                    <select value={bot.dialect_behavior || 'professional'} onChange={(e) => setB('dialect_behavior', e.target.value)}>
+                      <option value="strict">Strict dialect</option>
+                      <option value="light">Light dialect</option>
+                      <option value="professional">Professional dialect</option>
+                      <option value="formal">Formal Arabic</option>
+                    </select>
+                  </div>
+                  <div className="field"><label>Formality</label>
+                    <select value={bot.formality || 'friendly'} onChange={(e) => setB('formality', e.target.value)}>
+                      <option value="very_casual">Very casual</option>
+                      <option value="friendly">Friendly</option>
+                      <option value="professional">Professional</option>
+                      <option value="formal">Formal</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="row"><div><b>Automatically match the customer&apos;s dialect</b></div>
+                  <Switch checked={bot.auto_match_dialect !== false} onChange={(v) => setB('auto_match_dialect', v)} /></div>
+                <div className="row"><div><b>Always use the business&apos;s selected dialect</b></div>
+                  <Switch checked={!!bot.force_business_dialect} onChange={(v) => setB('force_business_dialect', v)} /></div>
+                <div className="field"><label>Preferred words & expressions</label>
+                  <textarea rows={2} value={bot.preferred_words || ''} onChange={(e) => setB('preferred_words', e.target.value)}
+                    placeholder="حياك الله، شلون نقدر نساعدك…" /></div>
+                <div className="field"><label>Words to avoid</label>
+                  <textarea rows={2} value={bot.avoid_words || ''} onChange={(e) => setB('avoid_words', e.target.value)}
+                    placeholder="يرجى التكرم، نحيطكم علماً…" /></div>
+              </div>
             )}
             {agent === 'website' && (
               <div className="train-grid">

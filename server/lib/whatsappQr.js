@@ -493,6 +493,76 @@ export async function sendQrVoice(businessId, to, audioBuffer, mimeType = 'audio
   })
 }
 
+async function readMedia(filePath) {
+  const fs = await import('node:fs/promises')
+  return fs.readFile(filePath)
+}
+
+export async function sendQrImage(businessId, to, filePath, caption = '') {
+  const s = sessions.get(businessId)
+  if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
+  const dest = toWhatsAppJid(to)
+  const buf = await readMedia(filePath)
+  await s.sock.sendMessage(dest, { image: buf, caption: String(caption || '').slice(0, 1024) })
+}
+
+export async function sendQrVideo(businessId, to, filePath, caption = '') {
+  const s = sessions.get(businessId)
+  if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
+  const dest = toWhatsAppJid(to)
+  const buf = await readMedia(filePath)
+  await s.sock.sendMessage(dest, { video: buf, caption: String(caption || '').slice(0, 1024) })
+}
+
+export async function sendQrDocument(businessId, to, filePath, fileName, caption = '') {
+  const s = sessions.get(businessId)
+  if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
+  const dest = toWhatsAppJid(to)
+  const buf = await readMedia(filePath)
+  await s.sock.sendMessage(dest, {
+    document: buf,
+    fileName: fileName || 'document.pdf',
+    mimetype: 'application/octet-stream',
+    caption: String(caption || '').slice(0, 1024),
+  })
+}
+
+export async function sendQrLocation(businessId, to, { name, address, lat, lng }) {
+  const s = sessions.get(businessId)
+  if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
+  const dest = toWhatsAppJid(to)
+  await s.sock.sendMessage(dest, {
+    location: {
+      degreesLatitude: Number(lat),
+      degreesLongitude: Number(lng),
+      name: name || undefined,
+      address: address || undefined,
+    },
+  })
+}
+
+export async function sendQrContact(businessId, to, { fullName, org, phone, email }) {
+  const s = sessions.get(businessId)
+  if (!s?.sock || s.status !== 'connected') throw new Error('WhatsApp QR session is not connected')
+  const dest = toWhatsAppJid(to)
+  const digits = String(phone || '').replace(/\D/g, '')
+  const vcard = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `FN:${fullName || 'Contact'}`,
+    org ? `ORG:${org}` : '',
+    digits ? `TEL;type=CELL;type=VOICE;waid=${digits}:+${digits}` : '',
+    email ? `EMAIL:${email}` : '',
+    'END:VCARD',
+  ].filter(Boolean).join('\n')
+  await s.sock.sendMessage(dest, {
+    contacts: {
+      displayName: fullName || 'Contact',
+      contacts: [{ vcard }],
+    },
+  })
+}
+
 export async function startQrSession(businessId, { restore = false, force = false } = {}) {
   if (!QR_ENABLED) throw new Error('WhatsApp QR is disabled')
   if (force) duplicatePhoneBusinesses.delete(businessId)
