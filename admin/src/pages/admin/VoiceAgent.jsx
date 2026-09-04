@@ -30,7 +30,7 @@ export function VoiceAgent({ businessId }) {
         <DialCard onCalled={() => setReload((n) => n + 1)} />
       </div>
       <div style={{ marginBottom: 18 }}><WebhookCard ctx={ctx} /></div>
-      {pid && <div style={{ marginBottom: 18 }}><TrainingStudio api={adminTrainingApi(pid)} defaultChannel="voice" /></div>}
+      {pid && <div style={{ marginBottom: 18 }}><TrainingStudio businessId={pid} api={adminTrainingApi(pid)} defaultChannel="voice" /></div>}
       <CallHistory reloadKey={reload} />
     </>
   )

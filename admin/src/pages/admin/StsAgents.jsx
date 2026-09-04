@@ -61,6 +61,7 @@ function ChannelAgent({ channel, ctx, businessId }) {
       </div>
       {businessId ? (
         <TrainingStudio
+          businessId={businessId}
           api={adminTrainingApi(businessId)}
           defaultChannel={channel}
           hideAgentPicker

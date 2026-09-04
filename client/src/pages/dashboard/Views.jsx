@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { T, useLang } from '../../i18n/LangContext'
 import { WHATSAPP, API, apiGet, apiPut, getUser } from '../../lib/api'
 import { Switch, useToast } from './ui'
+import { ChatMenu } from './ChatMenu'
 import { ConnectionForm, BotSettings } from './ConnectionForm'
 import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 import { DialCard, VoiceWebhookCard, CallHistory } from './VoiceAgent'
@@ -81,28 +82,31 @@ export function WhatsAppView() {
       .catch(() => {})
   }, [])
   return (
-    <div className="grid g2">
-      <div className="card">
-        <h3><Icon name="plug-zap" /><T k="conn_title" /></h3>
-        <div className="conn-tabs" style={{ marginBottom: 14 }}>
-          <button className={`conn-tab ${provider === 'qr' ? 'on' : ''}`} onClick={() => setProvider('qr')}>
-            <Icon name="qr-code" size={15} /><T k="qr_tab" />
-          </button>
-          <button className={`conn-tab ${provider === 'cloud_api' ? 'on' : ''}`} onClick={() => setProvider('cloud_api')}>
-            <Icon name="message-circle" size={15} /><T k="meta_tab" />
-          </button>
+    <>
+      <div className="grid g2" style={{ marginBottom: 18 }}>
+        <div className="card">
+          <h3><Icon name="plug-zap" /><T k="conn_title" /></h3>
+          <div className="conn-tabs" style={{ marginBottom: 14 }}>
+            <button className={`conn-tab ${provider === 'qr' ? 'on' : ''}`} onClick={() => setProvider('qr')}>
+              <Icon name="qr-code" size={15} /><T k="qr_tab" />
+            </button>
+            <button className={`conn-tab ${provider === 'cloud_api' ? 'on' : ''}`} onClick={() => setProvider('cloud_api')}>
+              <Icon name="message-circle" size={15} /><T k="meta_tab" />
+            </button>
+          </div>
+          {provider === 'qr' ? (
+            <WhatsAppQrPanel onChange={setQrLive} />
+          ) : (
+            <ConnectionForm channel="whatsapp" embedded />
+          )}
+          {qrLive?.status === 'connected' && provider === 'qr' && (
+            <p className="hint" style={{ marginTop: 10 }}>{qrLive.display_number}</p>
+          )}
         </div>
-        {provider === 'qr' ? (
-          <WhatsAppQrPanel onChange={setQrLive} />
-        ) : (
-          <ConnectionForm channel="whatsapp" embedded />
-        )}
-        {qrLive?.status === 'connected' && provider === 'qr' && (
-          <p className="hint" style={{ marginTop: 10 }}>{qrLive.display_number}</p>
-        )}
+        <BotSettings channel="whatsapp" />
       </div>
-      <BotSettings channel="whatsapp" />
-    </div>
+      <ChatMenu />
+    </>
   )
 }
 

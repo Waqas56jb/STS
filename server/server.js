@@ -936,35 +936,50 @@ app.post('/api/admin/tts/preview', auth, adminOnly, wrap(async (req, res) => {
 
 /* ---------- WhatsApp Chat Menu ---------- */
 async function resolveChatMenuBusiness(req) {
-  const qid = req.query.business_id || req.body?.business_id
+  const qid = req.params?.id || req.query.business_id || req.body?.business_id
   if (qid) {
-    if (!(await adminOwns(req.user, qid))) return null
-    return qid
+    if (req.user.role === 'admin') {
+      if (!(await adminOwns(req.user, qid))) return null
+      return qid
+    }
+    // Client may only access their own business
+    if (String(req.user.business_id) === String(qid)) return qid
+    return null
   }
+  if (req.user.role === 'client' && req.user.business_id) return req.user.business_id
   return adminWorkspace(req) || req.user.business_id
 }
 
-app.get('/api/admin/chat-menu', auth, adminOnly, wrap(async (req, res) => {
+async function chatMenuGetHandler(req, res) {
   const { getOrCreateMenu } = await import('./lib/chatMenu.js')
   const { ACTION_TYPES, RESET_PRESETS } = await import('./lib/chatMenuShared.js')
   const businessId = await resolveChatMenuBusiness(req)
   if (!businessId) return res.status(404).json({ error: 'Business not found' })
   const data = await getOrCreateMenu(businessId)
   res.json({ ...data, action_types: ACTION_TYPES, reset_presets: RESET_PRESETS, business_id: businessId })
-}))
+}
 
-app.put('/api/admin/chat-menu', auth, adminOnly, wrap(async (req, res) => {
+async function chatMenuPutHandler(req, res) {
   const { saveMenu } = await import('./lib/chatMenu.js')
   const businessId = await resolveChatMenuBusiness(req)
   if (!businessId) return res.status(404).json({ error: 'Business not found' })
   const data = await saveMenu(businessId, req.body || {})
   res.json({ ...data, business_id: businessId })
-}))
+}
+
+app.get('/api/admin/chat-menu', auth, adminOnly, wrap(chatMenuGetHandler))
+app.put('/api/admin/chat-menu', auth, adminOnly, wrap(chatMenuPutHandler))
+app.get('/api/admin/businesses/:id/chat-menu', auth, adminOnly, adminOwnsBiz, wrap(chatMenuGetHandler))
+app.put('/api/admin/businesses/:id/chat-menu', auth, adminOnly, adminOwnsBiz, wrap(chatMenuPutHandler))
+
+// Client (own business training)
+app.get('/api/chat-menu', auth, wrap(chatMenuGetHandler))
+app.put('/api/chat-menu', auth, wrap(chatMenuPutHandler))
 
 app.post('/api/admin/chat-menu/upload', auth, adminOnly, multer({
   storage: multer.diskStorage({
     destination: (req, _file, cb) => {
-      const bizId = req.query.business_id || req.user.business_id
+      const bizId = req.query.business_id || req.params?.id || req.user.business_id
       const dir = path.join(__dirname, 'uploads', 'chat-menu', String(bizId || 'misc'))
       fs.mkdirSync(dir, { recursive: true })
       cb(null, dir)
@@ -979,6 +994,27 @@ app.post('/api/admin/chat-menu/upload', auth, adminOnly, multer({
   if (!req.file) return res.status(400).json({ error: 'file required' })
   const bizId = req.query.business_id || req.user.business_id
   const rel = path.join(String(bizId || 'misc'), req.file.filename)
+  res.json({ ok: true, path: rel.replace(/\\/g, '/'), name: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype })
+}))
+
+app.post('/api/chat-menu/upload', auth, multer({
+  storage: multer.diskStorage({
+    destination: (req, _file, cb) => {
+      const bizId = req.user.business_id
+      const dir = path.join(__dirname, 'uploads', 'chat-menu', String(bizId || 'misc'))
+      fs.mkdirSync(dir, { recursive: true })
+      cb(null, dir)
+    },
+    filename: (_req, file, cb) => {
+      const safe = String(file.originalname || 'file').replace(/[^\w.\-]+/g, '_').slice(0, 80)
+      cb(null, `${Date.now()}_${safe}`)
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+}).single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'file required' })
+  if (!req.user.business_id) return res.status(400).json({ error: 'No business' })
+  const rel = path.join(String(req.user.business_id), req.file.filename)
   res.json({ ok: true, path: rel.replace(/\\/g, '/'), name: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype })
 }))
 

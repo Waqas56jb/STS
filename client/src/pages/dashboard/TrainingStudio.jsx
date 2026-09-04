@@ -4,6 +4,7 @@ import { VoiceAccentPicker } from '../../components/VoiceAccentPicker'
 import { T, useLang } from '../../i18n/LangContext'
 import { apiGet, apiPut, apiPostAuth, apiDelete, apiUpload } from '../../lib/api'
 import { Switch, useToast } from './ui'
+import { ChatMenu } from './ChatMenu'
 
 const PROFILE_META = '__business_profile__'
 const KB_ACCEPT = '.pdf,.txt,.md,.csv,.docx,.xlsx,.xls,application/pdf,text/plain'
@@ -494,6 +495,19 @@ export function TrainingStudio({
           <p className="hint" style={{ marginTop: 12 }}>{t('kb_adopt').replace('{agent}', agentName)}</p>
         </aside>
       </div>
+
+      {agent === 'whatsapp' && (
+        <section className="train-card" style={{ marginTop: 16 }}>
+          <div className="train-step" style={{ marginBottom: 12 }}>
+            <span className="train-num">5</span>
+            <div className="train-step-copy">
+              <b>WhatsApp Chat Menu</b>
+              <small>Greeting + numbered options for your WhatsApp. Sent once per new conversation.</small>
+            </div>
+          </div>
+          <ChatMenu />
+        </section>
+      )}
 
       <LearnOverlay open={learn.open} done={learn.done} agentName={agentName} cls={agentMeta.cls} t={t} />
 

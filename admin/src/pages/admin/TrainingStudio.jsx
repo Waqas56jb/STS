@@ -4,6 +4,7 @@ import { VoiceAccentPicker } from '../../components/VoiceAccentPicker'
 import { useAdminT } from '../../i18n/admin'
 import { apiGet, apiPut, apiPostAuth, apiDelete, apiUpload } from '../../lib/api'
 import { useToast } from '../ui'
+import { ChatMenu } from './ChatMenu'
 
 function Switch({ checked, onChange }) {
   return (
@@ -97,10 +98,12 @@ function profileForAgent(rows, agent) {
  */
 export function TrainingStudio({
   api,
+  businessId: businessIdProp = null,
   defaultChannel = 'all',
   compact = false,
   hideAgentPicker = false,
 }) {
+  const chatMenuBizId = businessIdProp || api?.businessId || null
   const { t } = useAdminT()
   const toast = useToast()
   const fileRef = useRef(null)
@@ -511,6 +514,19 @@ export function TrainingStudio({
         </aside>
       </div>
 
+      {agent === 'whatsapp' && chatMenuBizId && (
+        <section className="train-card" style={{ marginTop: 16 }}>
+          <div className="train-step" style={{ marginBottom: 12 }}>
+            <span className="train-num">5</span>
+            <div className="train-step-copy">
+              <b>WhatsApp Chat Menu</b>
+              <small>Greeting + numbered options for this business only. Sent once per new WhatsApp session.</small>
+            </div>
+          </div>
+          <ChatMenu businessId={chatMenuBizId} compact />
+        </section>
+      )}
+
       <LearnOverlay open={learn.open} done={learn.done} agentName={agentName} cls={agentMeta.cls} t={t} />
 
       {editing && (
@@ -589,6 +605,7 @@ function EditModal({ entry, t, onClose, onSaved, update }) {
 export function adminTrainingApi(businessId) {
   const base = `/admin/businesses/${businessId}`
   return {
+    businessId,
     listKnowledge: () => apiGet(`${base}/knowledge`),
     createKnowledge: (body) => apiPostAuth(`${base}/knowledge`, body),
     updateKnowledge: (id, body) => apiPut(`/admin/knowledge/${id}`, body),
