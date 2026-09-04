@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { VoiceAccentPicker } from '../../components/VoiceAccentPicker'
 import { T, useLang } from '../../i18n/LangContext'
 import { apiGet, apiPut, apiDelete } from '../../lib/api'
 import { Switch, useToast } from './ui'
@@ -147,7 +148,7 @@ export function BotSettings({ channel, extra, showToggles = true, showLanguage =
   const toast = useToast()
   const [b, setB] = useState({
     auto_reply: true, human_handoff: true, after_hours_only: false,
-    greeting: '', tone: 'friendly', language: 'auto',
+    greeting: '', tone: 'friendly', language: 'auto', tts_voice: 'alloy',
   })
 
   useEffect(() => {
@@ -201,6 +202,22 @@ export function BotSettings({ channel, extra, showToggles = true, showLanguage =
           </select>
           <div className="hint" style={{ marginTop: 6 }}><T k="vc_lang_hint" /></div>
         </div>
+      )}
+      {(channel === 'whatsapp' || channel === 'voice') && (
+        <VoiceAccentPicker
+          value={b.tts_voice || 'alloy'}
+          onChange={(id) => set('tts_voice', id)}
+          labels={{
+            title: t('tts_title'),
+            hint: channel === 'whatsapp' ? t('tts_hint_wa') : t('tts_hint_vc'),
+            preview: t('tts_preview'),
+            playing: t('tts_playing'),
+            select: t('tts_select'),
+            selected: t('tts_selected'),
+            loading: t('tts_loading'),
+            fail: t('tts_fail'),
+          }}
+        />
       )}
       {extra}
       <button className="btn btn-g" onClick={save}><Icon name="save" size={16} /><T k="save" /></button>

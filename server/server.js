@@ -759,28 +759,38 @@ app.patch('/api/conversations/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true })
 }))
 
-const BOT_DEFAULTS = { auto_reply: true, human_handoff: true, after_hours_only: false, greeting: '', tone: 'friendly', language: 'auto', widget_color: '#0FBE8F', widget_position: 'bottom_right', rules: '' }
+const BOT_DEFAULTS = {
+  auto_reply: true, human_handoff: true, after_hours_only: false,
+  greeting: '', tone: 'friendly', language: 'auto',
+  widget_color: '#0FBE8F', widget_position: 'bottom_right', rules: '',
+  tts_voice: 'alloy',
+}
 const toBotChannel = (c) => (c === 'website' ? 'web' : c)
 
 async function upsertBotSettings(businessId, channel, b = {}) {
   if (!businessId) throw Object.assign(new Error('No business on this account'), { status: 400 })
   const ch = toBotChannel(channel)
+  const { normalizeTtsVoice } = await import('./lib/ttsVoices.js')
+  const ttsVoice = normalizeTtsVoice(b.tts_voice)
   const args = [businessId, ch, b.auto_reply ?? true, b.human_handoff ?? true, b.after_hours_only ?? false,
-    b.greeting || '', b.tone || 'friendly', b.language || 'auto', b.widget_color || '#0FBE8F', b.widget_position || 'bottom_right', b.rules || '']
+    b.greeting || '', b.tone || 'friendly', b.language || 'auto', b.widget_color || '#0FBE8F',
+    b.widget_position || 'bottom_right', b.rules || '', ttsVoice]
   let row
   try {
     row = await one(
-      `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, rules, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+      `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, rules, tts_voice, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
        on conflict (business_id, channel) do update set
          auto_reply=excluded.auto_reply, human_handoff=excluded.human_handoff, after_hours_only=excluded.after_hours_only,
          greeting=excluded.greeting, tone=excluded.tone, language=excluded.language,
-         widget_color=excluded.widget_color, widget_position=excluded.widget_position, rules=excluded.rules, updated_at=now()
+         widget_color=excluded.widget_color, widget_position=excluded.widget_position, rules=excluded.rules,
+         tts_voice=excluded.tts_voice, updated_at=now()
        returning *`,
       args,
     )
   } catch (e) {
     if (e.code !== '42703') throw e
+    // Older DB without tts_voice / rules — degrade gracefully
     row = await one(
       `insert into sts_bot_settings (business_id, channel, auto_reply, human_handoff, after_hours_only, greeting, tone, language, widget_color, widget_position, updated_at)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
@@ -833,6 +843,38 @@ app.get('/api/bots/:channel', auth, wrap(async (req, res) => {
 app.put('/api/bots/:channel', auth, wrap(async (req, res) => {
   if (!biz(req)) return res.status(400).json({ error: 'No business on this account' })
   res.json(await upsertBotSettings(biz(req), req.params.channel, req.body || {}))
+}))
+
+app.get('/api/tts/voices', auth, wrap(async (_req, res) => {
+  const { listTtsVoices } = await import('./lib/ttsVoices.js')
+  res.json(listTtsVoices())
+}))
+
+/** Preview a TTS voice as MP3 (hear before you choose). */
+app.post('/api/tts/preview', auth, wrap(async (req, res) => {
+  const { previewTtsVoice } = await import('./lib/whatsappVoice.js')
+  const { voice, text } = req.body || {}
+  try {
+    const { buffer, mimetype } = await previewTtsVoice(voice, text)
+    res.setHeader('Content-Type', mimetype)
+    res.setHeader('Cache-Control', 'no-store')
+    res.send(buffer)
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Preview failed' })
+  }
+}))
+
+app.post('/api/admin/tts/preview', auth, adminOnly, wrap(async (req, res) => {
+  const { previewTtsVoice } = await import('./lib/whatsappVoice.js')
+  const { voice, text } = req.body || {}
+  try {
+    const { buffer, mimetype } = await previewTtsVoice(voice, text)
+    res.setHeader('Content-Type', mimetype)
+    res.setHeader('Cache-Control', 'no-store')
+    res.send(buffer)
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Preview failed' })
+  }
 }))
 
 // Knowledge base (per-agent scoped via `channel`; 'all' = shared)

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { VoiceAccentPicker } from '../../components/VoiceAccentPicker'
 import { T, useLang } from '../../i18n/LangContext'
 import { apiGet, apiPut, apiPostAuth, apiDelete, apiUpload } from '../../lib/api'
 import { Switch, useToast } from './ui'
@@ -28,7 +29,7 @@ export const AGENTS = [
 const emptyProfile = { name: '', about: '', hours: '', phone: '', email: '', address: '', services: '', website: '' }
 const emptyBot = {
   auto_reply: true, human_handoff: true, after_hours_only: false,
-  greeting: '', tone: 'friendly', language: 'auto',
+  greeting: '', tone: 'friendly', language: 'auto', tts_voice: 'alloy',
   widget_color: '#0FBE8F', widget_position: 'bottom_right', rules: '',
 }
 
@@ -323,6 +324,22 @@ export function TrainingStudio({
                 </select>
               </div>
             </div>
+            {(agent === 'whatsapp' || agent === 'voice') && (
+              <VoiceAccentPicker
+                value={bot.tts_voice || 'alloy'}
+                onChange={(id) => setB('tts_voice', id)}
+                labels={{
+                  title: t('tts_title'),
+                  hint: agent === 'whatsapp' ? t('tts_hint_wa') : t('tts_hint_vc'),
+                  preview: t('tts_preview'),
+                  playing: t('tts_playing'),
+                  select: t('tts_select'),
+                  selected: t('tts_selected'),
+                  loading: t('tts_loading'),
+                  fail: t('tts_fail'),
+                }}
+              />
+            )}
             {agent === 'website' && (
               <div className="train-grid">
                 <div className="field"><label><T k="wd_col" /></label>

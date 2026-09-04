@@ -40,6 +40,7 @@ export async function ensureTrainingSchema() {
       unique (business_id, customer_key)
     )`)
   await pool.query(`create index if not exists idx_customer_memory_biz on sts_customer_memory(business_id, customer_key)`)
+  await pool.query(`alter table sts_bot_settings add column if not exists tts_voice text default 'alloy'`)
   await pool.query(`alter table sts_users add column if not exists email_verified_at timestamptz`)
   await pool.query(`alter table sts_users add column if not exists email_verify_token text`)
   await pool.query(`alter table sts_users add column if not exists email_verify_expires timestamptz`)

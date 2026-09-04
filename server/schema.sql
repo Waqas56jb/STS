@@ -127,6 +127,7 @@ create table if not exists sts_bot_settings (
   unique(business_id, channel)
 );
 alter table sts_bot_settings add column if not exists rules text;
+alter table sts_bot_settings add column if not exists tts_voice text default 'alloy';
 
 -- ---------- knowledge base ----------
 create table if not exists sts_knowledge_sources (

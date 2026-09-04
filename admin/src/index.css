@@ -1928,3 +1928,42 @@ html[dir='rtl'] .inv-paid-stamp { right: auto; left: 80px; transform: rotate(12d
 }
 .settings-tip p { font-size: 12.5px; color: var(--ink); line-height: 1.5; }
 
+
+/* ---- Voice / accent picker ---- */
+.voice-accent { margin: 14px 0 18px; }
+.voice-accent-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.voice-accent-head label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.voice-accent-err { color: #991B1B; font-size: 12.5px; margin-bottom: 8px; }
+.voice-accent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.voice-accent-card {
+  text-align: start;
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 12px 10px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+  font: inherit;
+  color: inherit;
+}
+.voice-accent-card:hover { border-color: rgba(15,190,143,.45); }
+.voice-accent-card.on {
+  border-color: var(--g, #0FBE8F);
+  box-shadow: 0 0 0 3px rgba(15,190,143,.12);
+}
+.voice-accent-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.voice-accent-top b { font-size: 14px; }
+.voice-accent-tag {
+  font-size: 10.5px; font-weight: 600; color: var(--g, #0FBE8F);
+  background: rgba(15,190,143,.1); padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+}
+.voice-accent-meta { font-size: 12px; color: var(--mut); margin: 6px 0 10px; line-height: 1.35; }
+.voice-accent-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.voice-accent-pick { font-size: 12px; color: var(--mut); font-weight: 600; }
+.voice-accent-pick.yes { color: var(--g, #0FBE8F); }
+.voice-accent-preview { padding: 5px 10px !important; font-size: 12px; }
+.voice-accent-preview.busy { opacity: .85; }
