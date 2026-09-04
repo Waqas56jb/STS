@@ -41,27 +41,44 @@ function dialectPrompt(bot) {
   if (!bot) return ''
   const lines = []
   const pl = bot.primary_language || 'auto'
+
+  // English is always American — never British/AU/etc.
+  lines.push('ENGLISH: Always use American English (US spelling and phrasing: color, organize, “Hi how can I help you”). Never use British English.')
+
   if (pl === 'ar') lines.push('Primary language: Arabic. Prefer Arabic replies.')
-  else if (pl === 'en') lines.push('Primary language: English. Prefer English replies.')
-  else if (pl === 'ar_en') lines.push('Primary languages: Arabic & English — match the customer.')
-  else if (pl === 'multi') lines.push('Multilingual — match the customer language.')
-  else lines.push('Reply in the customer\'s language (Arabic or English).')
+  else if (pl === 'en') lines.push('Primary language: English (American). Prefer English replies.')
+  else if (pl === 'ar_en') lines.push('Primary languages: Arabic & American English — match the customer language.')
+  else if (pl === 'multi') lines.push('Multilingual — match the customer language. English parts must be American English.')
+  else lines.push('Reply in the customer\'s language (Arabic or American English).')
 
   const dialect = bot.arabic_dialect || 'kuwaiti'
+  const countryMap = {
+    bahraini: 'Bahrain (بحرينية)',
+    kuwaiti: 'Kuwait (كويتية)',
+    saudi: 'Saudi Arabia (سعودية)',
+    iraqi: 'Iraq (عراقية)',
+    jordanian: 'Jordan (أردنية)',
+    yemeni: 'Yemen (يمنية)',
+    qatari: 'Qatar (قطرية)',
+    omani: 'Oman (عُمانية)',
+    emirati: 'UAE / Emirates (إماراتية)',
+    auto: 'detect and match the customer\'s country dialect (Bahrain, Kuwait, Saudi, Iraq, Jordan, Yemen, Qatar, Oman, or UAE)',
+  }
   const behavior = bot.dialect_behavior || 'professional'
   const formality = bot.formality || bot.tone || 'friendly'
   if (pl !== 'en') {
-    const dialectLabel = dialect === 'auto' ? 'detect and match the customer\'s Arabic dialect' : dialect
-    lines.push(`Arabic dialect: ${dialectLabel}.`)
-    lines.push(`Dialect behavior: ${behavior} (strict = strong dialect, light = light flavor, professional = business dialect, formal = mostly MSA).`)
+    const dialectLabel = countryMap[dialect] || countryMap.kuwaiti
+    lines.push(`Arabic dialect / country: ${dialectLabel}.`)
+    lines.push(`When speaking Arabic, use natural local vocabulary and expressions for that country — not Egyptian, Moroccan, or Levantine unless that is the selected country.`)
+    lines.push(`Dialect behavior: ${behavior} (strict = strong local dialect, light = light flavor, professional = business local dialect, formal = clearer MSA with a light local touch).`)
     lines.push(`Formality: ${formality}.`)
     if (bot.auto_match_dialect !== false && !bot.force_business_dialect) {
-      lines.push('Automatically match the customer\'s Arabic dialect when reasonably confident.')
+      lines.push('Automatically match the customer\'s Arabic country dialect when reasonably confident (among Bahrain, Kuwait, Saudi, Iraq, Jordan, Yemen, Qatar, Oman, UAE).')
     }
     if (bot.force_business_dialect) {
-      lines.push('ALWAYS use the business selected dialect — do not switch based on the customer.')
+      lines.push('ALWAYS use the business selected country dialect — do not switch based on the customer.')
     }
-    lines.push('Dialect rules: sound natural, never fake/comedic; keep product names, prices, legal and technical terms accurate; prefer clear conversational Arabic if unsure.')
+    lines.push('Dialect rules: sound natural for that country, never fake/comedic; keep product names, prices, legal and technical terms accurate; prefer clear conversational Arabic if unsure.')
   }
   if (bot.preferred_words) lines.push(`Preferred words/expressions: ${bot.preferred_words}`)
   if (bot.avoid_words) lines.push(`Words to avoid: ${bot.avoid_words}`)

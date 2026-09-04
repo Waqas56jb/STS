@@ -148,27 +148,29 @@ export function demoMenuOptions() {
   ]
 }
 
+/** Country Arabic dialects — English replies always stay American English. */
 export const ARABIC_DIALECTS = [
-  { id: 'msa', label: 'Modern Standard Arabic — العربية الفصحى' },
-  { id: 'gulf', label: 'Gulf Arabic — اللهجة الخليجية' },
-  { id: 'kuwaiti', label: 'Kuwaiti Arabic — اللهجة الكويتية' },
-  { id: 'qatari', label: 'Qatari Arabic — اللهجة القطرية' },
-  { id: 'saudi', label: 'Saudi Arabic — اللهجة السعودية' },
-  { id: 'emirati', label: 'Emirati Arabic — اللهجة الإماراتية' },
-  { id: 'bahraini', label: 'Bahraini Arabic — اللهجة البحرينية' },
-  { id: 'omani', label: 'Omani Arabic — اللهجة العُمانية' },
-  { id: 'iraqi', label: 'Iraqi Arabic — اللهجة العراقية' },
-  { id: 'egyptian', label: 'Egyptian Arabic — اللهجة المصرية' },
-  { id: 'levantine', label: 'Levantine Arabic — اللهجة الشامية' },
-  { id: 'jordanian', label: 'Jordanian Arabic — اللهجة الأردنية' },
-  { id: 'lebanese', label: 'Lebanese Arabic — اللهجة اللبنانية' },
-  { id: 'palestinian', label: 'Palestinian Arabic — اللهجة الفلسطينية' },
-  { id: 'syrian', label: 'Syrian Arabic — اللهجة السورية' },
-  { id: 'moroccan', label: 'Moroccan Arabic — الدارجة المغربية' },
-  { id: 'tunisian', label: 'Tunisian Arabic — اللهجة التونسية' },
-  { id: 'algerian', label: 'Algerian Arabic — اللهجة الجزائرية' },
-  { id: 'auto', label: 'Automatic — Detect customer dialect' },
+  { id: 'bahraini', label: 'Bahrain — اللهجة البحرينية', country: 'Bahrain' },
+  { id: 'kuwaiti', label: 'Kuwait — اللهجة الكويتية', country: 'Kuwait' },
+  { id: 'saudi', label: 'Saudi Arabia — اللهجة السعودية', country: 'Saudi Arabia' },
+  { id: 'iraqi', label: 'Iraq — اللهجة العراقية', country: 'Iraq' },
+  { id: 'jordanian', label: 'Jordan — اللهجة الأردنية', country: 'Jordan' },
+  { id: 'yemeni', label: 'Yemen — اللهجة اليمنية', country: 'Yemen' },
+  { id: 'qatari', label: 'Qatar — اللهجة القطرية', country: 'Qatar' },
+  { id: 'omani', label: 'Oman — اللهجة العُمانية', country: 'Oman' },
+  { id: 'emirati', label: 'UAE — اللهجة الإماراتية', country: 'United Arab Emirates' },
+  { id: 'auto', label: 'Automatic — Detect customer dialect', country: null },
 ]
+
+export const ENGLISH_ACCENT = {
+  id: 'american',
+  label: 'American English',
+  note: 'All English replies use American English (spelling, phrasing, tone).',
+}
+
+export const DIALECT_LABELS = Object.fromEntries(
+  ARABIC_DIALECTS.filter((d) => d.country).map((d) => [d.id, d.country]),
+)
 
 export const DIALECT_BEHAVIORS = [
   { id: 'strict', label: 'Strict dialect' },

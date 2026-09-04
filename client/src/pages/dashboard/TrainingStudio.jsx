@@ -349,39 +349,35 @@ export function TrainingStudio({
                   <span className="train-num">★</span>
                   <div className="train-step-copy">
                     <b>Language & Dialect</b>
-                    <small>Choose how the AI speaks and which dialect it should use with customers.</small>
+                    <small>English stays American. Arabic uses the selected country dialect.</small>
                   </div>
+                </div>
+                <div className="field" style={{ marginBottom: 10 }}>
+                  <label>English accent</label>
+                  <input readOnly value="American English (fixed)" />
+                  <div className="hint" style={{ marginTop: 4 }}>All English replies use US spelling and phrasing.</div>
                 </div>
                 <div className="train-grid">
                   <div className="field"><label>Primary language</label>
                     <select value={bot.primary_language || 'ar_en'} onChange={(e) => setB('primary_language', e.target.value)}>
                       <option value="ar">Arabic</option>
-                      <option value="en">English</option>
+                      <option value="en">English (American)</option>
                       <option value="ar_en">Arabic & English</option>
                       <option value="multi">Multilingual</option>
                       <option value="auto">Auto (match customer)</option>
                     </select>
                   </div>
-                  <div className="field"><label>Arabic dialect</label>
+                  <div className="field"><label>Arabic dialect (country)</label>
                     <select value={bot.arabic_dialect || 'kuwaiti'} onChange={(e) => setB('arabic_dialect', e.target.value)}>
-                      <option value="msa">Modern Standard Arabic — الفصحى</option>
-                      <option value="gulf">Gulf Arabic — خليجية</option>
-                      <option value="kuwaiti">Kuwaiti Arabic — كويتية</option>
-                      <option value="qatari">Qatari Arabic — قطرية</option>
-                      <option value="saudi">Saudi Arabic — سعودية</option>
-                      <option value="emirati">Emirati Arabic — إماراتية</option>
-                      <option value="bahraini">Bahraini Arabic — بحرينية</option>
-                      <option value="omani">Omani Arabic — عُمانية</option>
-                      <option value="iraqi">Iraqi Arabic — عراقية</option>
-                      <option value="egyptian">Egyptian Arabic — مصرية</option>
-                      <option value="levantine">Levantine Arabic — شامية</option>
-                      <option value="jordanian">Jordanian Arabic — أردنية</option>
-                      <option value="lebanese">Lebanese Arabic — لبنانية</option>
-                      <option value="palestinian">Palestinian Arabic — فلسطينية</option>
-                      <option value="syrian">Syrian Arabic — سورية</option>
-                      <option value="moroccan">Moroccan Arabic — مغربية</option>
-                      <option value="tunisian">Tunisian Arabic — تونسية</option>
-                      <option value="algerian">Algerian Arabic — جزائرية</option>
+                      <option value="bahraini">Bahrain — بحرينية</option>
+                      <option value="kuwaiti">Kuwait — كويتية</option>
+                      <option value="saudi">Saudi Arabia — سعودية</option>
+                      <option value="iraqi">Iraq — عراقية</option>
+                      <option value="jordanian">Jordan — أردنية</option>
+                      <option value="yemeni">Yemen — يمنية</option>
+                      <option value="qatari">Qatar — قطرية</option>
+                      <option value="omani">Oman — عُمانية</option>
+                      <option value="emirati">UAE — إماراتية</option>
                       <option value="auto">Automatic — Detect customer dialect</option>
                     </select>
                   </div>
