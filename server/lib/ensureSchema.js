@@ -48,5 +48,37 @@ export async function ensureTrainingSchema() {
   await ensureChatMenuSchema()
   const { ensureOrdersSchema } = await import('./orders.js')
   await ensureOrdersSchema()
+
+  // Keep WhatsApp plan prices in sync with current public pricing
+  await pool.query(`update sts_plans set price_kwd=14.990, name='WhatsApp Starter', quota_label='2,500 msgs/mo' where code='wa_starter'`)
+  await pool.query(`update sts_plans set price_kwd=19.990, name='WhatsApp Growth', quota_label='5,000 msgs/mo' where code='wa_growth'`)
+  await pool.query(`update sts_plans set price_kwd=27.990, name='WhatsApp Pro', quota_label='10,000 msgs/mo' where code='wa_pro'`)
+
+  // Refresh stored website pricing so landing shows WhatsApp-only live plans
+  try {
+    const { one } = await import('../db.js')
+    const { DEFAULT_SITE_CONFIG, parseSiteConfig } = await import('./siteConfig.js')
+    const row = await one(`select value from sts_settings where key='site_config'`)
+    const cfg = parseSiteConfig(row?.value)
+    cfg.pricing = { 'p-wa': structuredClone(DEFAULT_SITE_CONFIG.pricing['p-wa']) }
+    if (cfg.copy?.en) {
+      cfg.copy.en.pr_p = DEFAULT_SITE_CONFIG.copy.en.pr_p
+      cfg.copy.en.hero_h1 = DEFAULT_SITE_CONFIG.copy.en.hero_h1
+      cfg.copy.en.hero_sub = DEFAULT_SITE_CONFIG.copy.en.hero_sub
+    }
+    if (cfg.copy?.ar) {
+      cfg.copy.ar.pr_p = DEFAULT_SITE_CONFIG.copy.ar.pr_p
+      cfg.copy.ar.hero_h1 = DEFAULT_SITE_CONFIG.copy.ar.hero_h1
+      cfg.copy.ar.hero_sub = DEFAULT_SITE_CONFIG.copy.ar.hero_sub
+    }
+    await pool.query(
+      `insert into sts_settings (key, value) values ('site_config', $1)
+       on conflict (key) do update set value=excluded.value, updated_at=now()`,
+      [JSON.stringify(cfg)],
+    )
+  } catch (e) {
+    console.warn('[schema] site_config pricing refresh skipped:', e.message)
+  }
+
   console.log('✓ training schema + tenant isolation + customer memory + orders ready')
 }

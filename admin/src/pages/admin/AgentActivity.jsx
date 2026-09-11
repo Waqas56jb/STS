@@ -7,9 +7,7 @@ import { AdminCallHistory } from './AdminCallHistory'
 
 const CHANNELS = [
   { v: 'whatsapp', icon: 'message-circle', cls: 'wa', label: 'WhatsApp' },
-  { v: 'instagram', icon: 'instagram', cls: 'ig', label: 'Instagram' },
   { v: 'web', icon: 'globe', cls: 'web', label: 'Website' },
-  { v: 'voice', icon: 'phone-call', cls: 'vc', label: 'Voice' },
 ]
 
 /**

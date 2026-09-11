@@ -12,8 +12,6 @@ import { Orders } from './dashboard/Orders'
 import {
   Overview,
   WhatsAppView,
-  InstagramView,
-  VoiceView,
   WidgetView,
   KnowledgeView,
   AnalyticsView,
@@ -28,8 +26,7 @@ const NAV = [
   { v: 'orders', icon: 'package', label: 'n_orders' },
   { section: 'n_agents' },
   { v: 'whatsapp', icon: 'message-circle', label: 'n_wa' },
-  { v: 'instagram', icon: 'instagram', label: 'n_ig' },
-  { v: 'voice', icon: 'phone-call', label: 'n_vc' },
+  // Instagram & Voice hidden until those products go live
   { v: 'widget', icon: 'globe', label: 'n_wd' },
   { v: 'knowledge', icon: 'book-open', label: 'n_kb' },
   { section: 'n_biz' },
@@ -39,8 +36,8 @@ const NAV = [
 ]
 
 const TITLES = {
-  overview: 'n_over', inbox: 'n_inbox', orders: 'n_orders', whatsapp: 'n_wa', instagram: 'n_ig',
-  voice: 'n_vc', widget: 'n_wd', knowledge: 'n_kb', analytics: 'n_an',
+  overview: 'n_over', inbox: 'n_inbox', orders: 'n_orders', whatsapp: 'n_wa',
+  widget: 'n_wd', knowledge: 'n_kb', analytics: 'n_an',
   billing: 'n_bill', settings: 'n_set',
 }
 
@@ -49,8 +46,6 @@ function ViewRouter({ view, summary, usage }) {
     case 'inbox': return <Inbox />
     case 'orders': return <Orders />
     case 'whatsapp': return <WhatsAppView />
-    case 'instagram': return <InstagramView />
-    case 'voice': return <VoiceView />
     case 'widget': return <WidgetView />
     case 'knowledge': return <KnowledgeView />
     case 'analytics': return <AnalyticsView />

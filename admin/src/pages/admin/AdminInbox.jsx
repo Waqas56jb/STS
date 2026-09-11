@@ -137,7 +137,6 @@ export function AdminInbox({ businessId, defaultChannel, showBusiness = true, ap
   const channelFilters = [
     { f: 'all', label: t('all') },
     { f: 'whatsapp', label: 'WhatsApp' },
-    { f: 'instagram', label: 'Instagram' },
     { f: 'web', label: 'Website' },
   ].filter((x) => !defaultChannel || x.f === 'all' || x.f === defaultChannel)
 

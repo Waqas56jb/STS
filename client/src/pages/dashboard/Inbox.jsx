@@ -115,8 +115,6 @@ export function Inbox() {
   const filters = [
     { f: 'all', label: t('f_all') },
     { f: 'whatsapp', label: t('ch_whatsapp') },
-    { f: 'instagram', label: t('ch_instagram') },
-    { f: 'voice', label: t('f_calls') },
     { f: 'web', label: t('f_web') },
   ]
 

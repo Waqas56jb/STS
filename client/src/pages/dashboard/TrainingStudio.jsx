@@ -22,9 +22,7 @@ const PAGE_TITLE = {
 export const AGENTS = [
   { v: 'all', icon: 'sparkles', key: 'tr_all', cls: 'lagoon' },
   { v: 'whatsapp', icon: 'message-circle', label: 'WhatsApp', cls: 'wa' },
-  { v: 'instagram', icon: 'instagram', label: 'Instagram', cls: 'ig' },
   { v: 'website', icon: 'globe', key: 'tr_web', cls: 'web' },
-  { v: 'voice', icon: 'phone-call', key: 'tr_voice', cls: 'vc' },
 ]
 
 const emptyProfile = { name: '', about: '', hours: '', phone: '', email: '', address: '', services: '', website: '' }

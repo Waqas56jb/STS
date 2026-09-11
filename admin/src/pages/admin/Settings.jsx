@@ -29,7 +29,7 @@ const TABS = [
   { id: 'brand', icon: 'palette', label: 'se_tab_brand' },
   { id: 'content', icon: 'type', label: 'se_tab_content' },
   { id: 'pricing', icon: 'tags', label: 'se_tab_pricing' },
-  { id: 'voice', icon: 'phone-call', label: 'se_tab_voice' },
+  // Voice platform settings hidden until Voice Agent launches
 ]
 
 function emptyConfig() {

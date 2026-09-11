@@ -20,9 +20,9 @@ create table if not exists sts_plans (
 );
 
 insert into sts_plans (code,name,category,quota_label,price_kwd,channels,sort) values
- ('wa_starter','WhatsApp Starter','whatsapp','2,500 msgs/mo',20.00,'{wa}',1),
- ('wa_growth','WhatsApp Growth','whatsapp','5,000 msgs/mo',25.00,'{wa}',2),
- ('wa_pro','WhatsApp Pro','whatsapp','10,000 msgs/mo',34.90,'{wa}',3),
+ ('wa_starter','WhatsApp Starter','whatsapp','2,500 msgs/mo',14.990,'{wa}',1),
+ ('wa_growth','WhatsApp Growth','whatsapp','5,000 msgs/mo',19.990,'{wa}',2),
+ ('wa_pro','WhatsApp Pro','whatsapp','10,000 msgs/mo',27.990,'{wa}',3),
  ('ig_starter','Instagram Starter','instagram','2,500 contacts/mo',20.00,'{ig}',4),
  ('ig_growth','Instagram Growth','instagram','5,000 contacts/mo',32.00,'{ig}',5),
  ('ig_business','Instagram Business','instagram','10,000 contacts/mo',55.00,'{ig}',6),

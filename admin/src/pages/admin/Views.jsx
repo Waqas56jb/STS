@@ -298,7 +298,19 @@ export function Plans() {
   const { t } = useAdminT()
   const toast = useToast()
   const [plans, setPlans] = useState([])
-  useEffect(() => { apiGet('/admin/plans').then(setPlans).catch(() => {}) }, [])
+  useEffect(() => {
+    apiGet('/admin/plans')
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : []
+        // Show live WhatsApp (+ free) plans only until other channels launch
+        setPlans(list.filter((p) => {
+          const cat = String(p.cat || p.category || '').toLowerCase()
+          const name = String(p.name || '').toLowerCase()
+          return cat === 'whatsapp' || cat === 'free' || name.includes('whatsapp') || name.includes('free')
+        }))
+      })
+      .catch(() => {})
+  }, [])
   return (
     <div className="card">
       <h3><Icon name="package" /><span>{t('pl_h')}</span></h3>

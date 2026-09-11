@@ -175,8 +175,11 @@ function Hero() {
 function Pricing() {
   const [tab, setTab] = useState('p-wa')
   const { t } = useLang()
-  const { pricing, contact } = useSiteConfig()
+  const { pricing, contact, whatsappUrl } = useSiteConfig()
   const priceData = pricing
+  const tabs = priceTabs.filter((tb) => Array.isArray(priceData?.[tb.id]) && priceData[tb.id].length)
+  const activeTab = tabs.some((tb) => tb.id === tab) ? tab : (tabs[0]?.id || 'p-wa')
+  const plans = priceData?.[activeTab] || []
   return (
     <section id="pricing">
       <div className="wrap">
@@ -185,22 +188,27 @@ function Pricing() {
           <h2><T k="pr_h" /></h2>
           <p><T k="pr_p" /></p>
         </Reveal>
-        <div className="tabs" role="tablist">
-          {priceTabs.map((tb) => (
-            <button key={tb.id} className={`tab ${tab === tb.id ? 'on' : ''}`} onClick={() => setTab(tb.id)}>
-              {t(tb.label)}
-            </button>
-          ))}
-        </div>
+        {tabs.length > 1 && (
+          <div className="tabs" role="tablist">
+            {tabs.map((tb) => (
+              <button key={tb.id} className={`tab ${activeTab === tb.id ? 'on' : ''}`} onClick={() => setTab(tb.id)}>
+                {t(tb.label)}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="pane on">
           <div className="pgrid">
-            {priceData[tab].map((plan) => (
-              <div key={plan.name} className={`plan ${plan.hot ? 'hot' : ''}`}>
+            {plans.map((plan) => (
+              <div key={plan.name} className={`plan ${plan.hot ? 'hot' : ''}${plan.custom ? ' custom' : ''}`}>
                 {plan.hot && <span className="tag">{t(plan.tag || 'popular')}</span>}
                 <h3>{plan.name}</h3>
                 <div className="who">{plan.whoLiteral ? plan.who : t(plan.who)}</div>
                 <div className="price">
-                  {plan.price} <small>{contact?.currency || 'KWD'}/<T k="mo" /></small>
+                  {plan.priceIsLabel ? t(plan.price === 'Quote' ? 'pr_quote' : plan.price) : plan.price}
+                  {!plan.priceIsLabel && (
+                    <small>{contact?.currency || 'KWD'}/<T k="mo" /></small>
+                  )}
                 </div>
                 {plan.was && (
                   <div className="was">{plan.was} KWD <T k="sep" /></div>
@@ -211,12 +219,18 @@ function Pricing() {
                     <li key={f}><Icon name="check" /><span>{t(f)}</span></li>
                   ))}
                 </ul>
-                <a className={`btn ${plan.hot ? 'btn-primary' : 'btn-dark'}`} href="#request">
-                  {t('get_started')}
+                <a
+                  className={`btn ${plan.hot ? 'btn-primary' : plan.custom ? 'btn-primary' : 'btn-dark'}`}
+                  href={plan.custom ? (whatsappUrl || '#request') : '#request'}
+                  target={plan.custom && whatsappUrl ? '_blank' : undefined}
+                  rel={plan.custom && whatsappUrl ? 'noreferrer' : undefined}
+                >
+                  {t(plan.custom ? 'request_quote' : 'get_started')}
                 </a>
               </div>
             ))}
           </div>
+          <p className="pr-extra"><T k="pr_extra" /></p>
         </div>
       </div>
     </section>
@@ -256,10 +270,10 @@ function RequestForm() {
         <label><T k="f_plan" /></label>
         <select name="interested_plan">
           <option value="whatsapp">WhatsApp Chatbot</option>
-          <option value="instagram">Instagram Chatbot</option>
-          <option value="voice">AI Voice Agent</option>
-          <option value="bundle_social">Social Bundle (WA + IG)</option>
-          <option value="bundle_complete">Complete Bundle (WA + IG + Voice)</option>
+          <option value="wa_starter">WhatsApp Starter</option>
+          <option value="wa_growth">WhatsApp Growth</option>
+          <option value="wa_pro">WhatsApp Pro</option>
+          <option value="custom">Custom quotation</option>
         </select>
       </div>
       <div className="field">

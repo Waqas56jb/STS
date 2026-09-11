@@ -52,7 +52,10 @@ export function SiteConfigProvider({ children }) {
         setConfig((c) => ({
           theme: { ...c.theme, ...d.theme },
           copy: d.copy || c.copy,
-          pricing: d.pricing && Object.keys(d.pricing).length ? d.pricing : c.pricing,
+          // Keep only live WhatsApp pricing in the public UI
+          pricing: {
+            'p-wa': (d.pricing?.['p-wa']?.length ? d.pricing['p-wa'] : defaultPricing['p-wa']),
+          },
           contact: { ...c.contact, ...d.contact },
         }))
       })

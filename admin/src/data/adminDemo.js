@@ -4,23 +4,11 @@
  * NOT display data; every table/card gets its rows from the /api/admin/* API.
  */
 
-/** Add-business modal plan dropdown options (value → label). */
+/** Add-business modal plan dropdown — WhatsApp plans only while other channels are not live. */
 export const planOptions = [
-  { v: 'wa_starter', l: 'WhatsApp Starter — 20 KWD' },
-  { v: 'wa_growth', l: 'WhatsApp Growth — 25 KWD' },
-  { v: 'wa_pro', l: 'WhatsApp Pro — 34.90 KWD' },
-  { v: 'ig_starter', l: 'Instagram Starter — 20 KWD' },
-  { v: 'ig_growth', l: 'Instagram Growth — 32 KWD' },
-  { v: 'ig_business', l: 'Instagram Business — 55 KWD' },
-  { v: 'voice_starter', l: 'Voice Starter — 39 KWD' },
-  { v: 'voice_standard', l: 'Voice Standard — 119 KWD' },
-  { v: 'voice_premium', l: 'Voice Premium — 329 KWD' },
-  { v: 'social_starter', l: 'Social Starter — 34 KWD' },
-  { v: 'social_growth', l: 'Social Growth — 48 KWD' },
-  { v: 'social_pro', l: 'Social Pro — 76 KWD' },
-  { v: 'complete_starter', l: 'Complete Starter — 65 KWD' },
-  { v: 'complete_growth', l: 'Complete Growth — 145 KWD' },
-  { v: 'complete_pro', l: 'Complete Pro — 349 KWD' },
+  { v: 'wa_starter', l: 'WhatsApp Starter — 14.990 KWD' },
+  { v: 'wa_growth', l: 'WhatsApp Growth — 19.990 KWD' },
+  { v: 'wa_pro', l: 'WhatsApp Pro — 27.990 KWD' },
   { v: 'free', l: 'Free / Trial — 0 KWD' },
 ]
 
@@ -36,8 +24,8 @@ export const chIco = {
 
 export const planLbl = {
   whatsapp: 'WhatsApp Chatbot',
-  instagram: 'Instagram Chatbot',
-  voice: 'AI Voice Agent',
-  bundle_social: 'Social Bundle',
-  bundle_complete: 'Complete Bundle',
+  wa_starter: 'WhatsApp Starter',
+  wa_growth: 'WhatsApp Growth',
+  wa_pro: 'WhatsApp Pro',
+  custom: 'Custom quotation',
 }

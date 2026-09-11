@@ -7,6 +7,7 @@ import { WhatsAppQrPanel } from './WhatsAppQrPanel'
 import { TrainingStudio, adminTrainingApi } from './TrainingStudio'
 import { AgentHistoryPanel } from './AgentActivity'
 import { ChatMenu } from './ChatMenu'
+import { filterConnectionSpec } from '../../lib/liveChannels'
 
 /**
  * Per-business channel connections + chatbot training, in one modal.
@@ -40,7 +41,7 @@ export function ConnectionModal({ business, onClose }) {
       apiGet(`/admin/businesses/${business.id}/connections`),
     ])
       .then(([sp, cs]) => {
-        setSpec(sp)
+        setSpec(filterConnectionSpec(sp))
         setConns(cs)
       })
       .catch(() => {})
