@@ -100,6 +100,14 @@ function buildSystemPrompt({ businessName, bot, kb, channel, memory, customerNam
     dialectBlock,
     `Send exactly ONE reply per customer message. Never greet twice or repeat the same question.`,
     `Use the customer's correct name from the current message — do not invent or reuse old names.`,
+    // Order capture for WhatsApp commerce businesses
+    channel === 'whatsapp' ? [
+      'ORDERS: When the customer clearly places or confirms an order (items, quantity, delivery/pickup), AFTER your normal customer-facing reply append EXACTLY this block (customers must never see it — it is stripped by the system):',
+      '[[STS_ORDER]]',
+      '{"customer_name":"","phone":"","address":"","delivery_type":"delivery|pickup","currency":"KWD","total":null,"notes":"","items":[{"name":"item name","qty":1,"price":null}]}',
+      '[[/STS_ORDER]]',
+      'Only include the block when an order is confirmed — not for browsing or questions. Use real item names and quantities from the chat.',
+    ].join('\n') : '',
     bot?.greeting ? `Brand greeting reference: ${bot.greeting}` : '',
     bot?.rules ? `AGENT RULES (always follow):\n${bot.rules}` : '',
     aiInstruction ? `SPECIAL INSTRUCTION FOR THIS TURN (from chat menu):\n${aiInstruction}` : '',

@@ -211,6 +211,31 @@ alter table sts_call_logs add column if not exists ended_at timestamptz;
 create index if not exists idx_sts_call_business on sts_call_logs(business_id, created_at desc);
 create unique index if not exists idx_sts_call_sid on sts_call_logs(provider_call_sid);
 
+-- ---------- orders (WhatsApp / channel commerce) ----------
+create table if not exists sts_orders (
+  id               uuid primary key default gen_random_uuid(),
+  business_id      uuid not null references sts_businesses(id) on delete cascade,
+  conversation_id  uuid references sts_conversations(id) on delete set null,
+  channel          text not null default 'whatsapp',
+  customer_handle  text,
+  customer_name    text,
+  customer_phone   text,
+  items            jsonb not null default '[]'::jsonb,
+  currency         text default 'KWD',
+  total            numeric(12,3),
+  status           text not null default 'new',
+  order_type       text default 'order',
+  notes            text,
+  address          text,
+  delivery_type    text,
+  source           text default 'ai',
+  summary          text,
+  raw_payload      jsonb default '{}'::jsonb,
+  created_at       timestamptz default now(),
+  updated_at       timestamptz default now()
+);
+create index if not exists idx_sts_orders_biz on sts_orders(business_id, created_at desc);
+
 -- ---------- leads ----------
 create table if not exists sts_leads (
   id          uuid primary key default gen_random_uuid(),

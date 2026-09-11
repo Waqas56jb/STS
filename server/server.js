@@ -356,8 +356,39 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
     return { conversationId: conv.id, reply: null }
   }
 
+  // Capture WhatsApp orders from AI marker (or fallback extractor)
+  let outboundReply = reply
+  if (channel === 'whatsapp') {
+    try {
+      const { extractOrderMarker, saveCapturedOrder, maybeExtractOrderFromChat } = await import('./lib/orders.js')
+      const { clean, order: marked } = extractOrderMarker(reply)
+      outboundReply = clean || reply
+      let payload = marked
+      if (!payload) {
+        payload = await maybeExtractOrderFromChat({
+          businessId,
+          businessName: bizRow?.name,
+          userText: text,
+          reply: outboundReply,
+          history,
+        })
+      }
+      if (payload) {
+        await saveCapturedOrder(businessId, {
+          conversation_id: conv.id,
+          channel: 'whatsapp',
+          customer_handle: customerHandle,
+          customer_name: customerName || memory?.customer_name,
+          source: marked ? 'ai' : 'ai_extract',
+        }, payload)
+      }
+    } catch (e) {
+      console.error('[orders] capture failed:', e.message)
+    }
+  }
+
   if (sendOutbound) {
-    try { await sendOutbound(reply) } catch (e) {
+    try { await sendOutbound(outboundReply) } catch (e) {
       console.error(`[${channel}] AI send failed:`, e.message)
     } finally {
       await endPresence()
@@ -366,15 +397,15 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
     await endPresence()
   }
 
-  const outboundPreview = previewText && previewText.startsWith('🎤') ? `🎤 ${reply.slice(0, 120)}` : reply
+  const outboundPreview = previewText && previewText.startsWith('🎤') ? `🎤 ${outboundReply.slice(0, 120)}` : outboundReply
   await pool.query(
     `insert into sts_messages (conversation_id, business_id, direction, sender, body) values ($1,$2,'out','ai',$3)`,
-    [conv.id, businessId, reply],
+    [conv.id, businessId, outboundReply],
   )
   await pool.query(`update sts_conversations set last_message_preview=$2, last_message_at=now() where id=$1`, [conv.id, outboundPreview])
 
   refreshCustomerMemory(businessId, memKey, conv.id).catch(() => {})
-  return { conversationId: conv.id, reply }
+  return { conversationId: conv.id, reply: outboundReply }
 }
 
 /** WhatsApp wrapper — same memory engine; chat menu runs inside handleInboundChat. */
@@ -700,6 +731,59 @@ app.get('/api/me/invoices', auth, wrap(async (req, res) => {
 app.get('/api/me/leads', auth, wrap(async (req, res) => {
   const rows = await many(`select name, contact, channel, status, note from sts_leads where business_id=$1 order by created_at desc`, [biz(req)])
   res.json(rows)
+}))
+
+/* ---------- Orders (WhatsApp / channel commerce) ---------- */
+app.get('/api/orders', auth, wrap(async (req, res) => {
+  const { listOrders, ORDER_STATUSES } = await import('./lib/orders.js')
+  const b = biz(req)
+  if (!b) return res.status(400).json({ error: 'No business on this account' })
+  const rows = await listOrders(b, {
+    status: req.query.status,
+    q: req.query.q,
+    limit: req.query.limit,
+  })
+  res.json({ orders: rows, statuses: ORDER_STATUSES })
+}))
+
+app.get('/api/orders/:id', auth, wrap(async (req, res) => {
+  const { getOrder } = await import('./lib/orders.js')
+  const row = await getOrder(req.params.id, biz(req))
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json(row)
+}))
+
+app.patch('/api/orders/:id', auth, wrap(async (req, res) => {
+  const { updateOrderStatus, ORDER_STATUSES } = await import('./lib/orders.js')
+  const status = String(req.body?.status || '')
+  if (!ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' })
+  const row = await updateOrderStatus(req.params.id, biz(req), status, { notes: req.body?.notes })
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.json(row)
+}))
+
+app.get('/api/admin/orders', auth, adminOnly, wrap(async (req, res) => {
+  const { listOrders, listOrdersForBusinesses, ORDER_STATUSES } = await import('./lib/orders.js')
+  const bizId = req.query.business_id
+  if (bizId) {
+    if (!(await adminOwns(req.user, bizId))) return res.status(404).json({ error: 'Not found' })
+    const rows = await listOrders(bizId, { status: req.query.status, q: req.query.q, limit: req.query.limit })
+    return res.json({ orders: rows, statuses: ORDER_STATUSES })
+  }
+  const ids = idList(await adminReportBusinessIds(req.user))
+  const rows = await listOrdersForBusinesses(ids, { status: req.query.status, q: req.query.q, limit: req.query.limit })
+  res.json({ orders: rows, statuses: ORDER_STATUSES })
+}))
+
+app.patch('/api/admin/orders/:id', auth, adminOnly, wrap(async (req, res) => {
+  const { getOrder, updateOrderStatus, ORDER_STATUSES } = await import('./lib/orders.js')
+  const existing = await getOrder(req.params.id)
+  if (!existing) return res.status(404).json({ error: 'Not found' })
+  if (!(await adminOwns(req.user, existing.business_id))) return res.status(404).json({ error: 'Not found' })
+  const status = String(req.body?.status || '')
+  if (!ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' })
+  const row = await updateOrderStatus(req.params.id, existing.business_id, status, { notes: req.body?.notes })
+  res.json(row)
 }))
 
 app.get('/api/me/calls', auth, wrap(async (req, res) => {

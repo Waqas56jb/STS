@@ -8,6 +8,7 @@ const LOGO = import.meta.env.BASE_URL + 'logo.png'
 import { API, clearSession, getUser } from '../lib/api'
 import { ToastProvider } from './dashboard/ui'
 import { Inbox } from './dashboard/Inbox'
+import { Orders } from './dashboard/Orders'
 import {
   Overview,
   WhatsAppView,
@@ -24,6 +25,7 @@ import {
 const NAV = [
   { v: 'overview', icon: 'layout-dashboard', label: 'n_over' },
   { v: 'inbox', icon: 'inbox', label: 'n_inbox' },
+  { v: 'orders', icon: 'package', label: 'n_orders' },
   { section: 'n_agents' },
   { v: 'whatsapp', icon: 'message-circle', label: 'n_wa' },
   { v: 'instagram', icon: 'instagram', label: 'n_ig' },
@@ -37,7 +39,7 @@ const NAV = [
 ]
 
 const TITLES = {
-  overview: 'n_over', inbox: 'n_inbox', whatsapp: 'n_wa', instagram: 'n_ig',
+  overview: 'n_over', inbox: 'n_inbox', orders: 'n_orders', whatsapp: 'n_wa', instagram: 'n_ig',
   voice: 'n_vc', widget: 'n_wd', knowledge: 'n_kb', analytics: 'n_an',
   billing: 'n_bill', settings: 'n_set',
 }
@@ -45,6 +47,7 @@ const TITLES = {
 function ViewRouter({ view, summary, usage }) {
   switch (view) {
     case 'inbox': return <Inbox />
+    case 'orders': return <Orders />
     case 'whatsapp': return <WhatsAppView />
     case 'instagram': return <InstagramView />
     case 'voice': return <VoiceView />

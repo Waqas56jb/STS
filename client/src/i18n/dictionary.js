@@ -187,6 +187,7 @@ export const en = {
   /* ================= dashboard ================= */
   n_over: 'Overview',
   n_inbox: 'Inbox',
+  n_orders: 'Orders',
   n_agents: 'AI Agents',
   n_wa: 'WhatsApp Agent',
   n_ig: 'Instagram Agent',
@@ -595,6 +596,7 @@ export const ar = {
   /* dashboard */
   n_over: 'نظرة عامة',
   n_inbox: 'صندوق الوارد',
+  n_orders: 'الطلبات',
   n_agents: 'الوكلاء الأذكياء',
   n_wa: 'وكيل واتساب',
   n_ig: 'وكيل انستغرام',

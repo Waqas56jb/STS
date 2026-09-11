@@ -413,18 +413,13 @@ async function handleBooking(ctx, contact, text, lang) {
     await sendText(ctx, qs[next - 1])
     return { handled: true, continueAi: false }
   }
-  // save lead
+  // save lead + order record for Orders tab
+  const note = `Meeting request\nCompany: ${data.company || '—'}\nService: ${data.service || '—'}\nWhen: ${data.datetime || '—'}`
   await pool.query(
-    `insert into sts_leads (business_id, name, contact, channel, status, notes)
+    `insert into sts_leads (business_id, name, contact, channel, status, note)
      values ($1,$2,$3,'whatsapp','new',$4)`,
-    [
-      ctx.businessId,
-      data.name || ctx.handle,
-      ctx.handle,
-      `Meeting request\nCompany: ${data.company || '—'}\nService: ${data.service || '—'}\nWhen: ${data.datetime || '—'}`,
-    ],
+    [ctx.businessId, data.name || ctx.handle, ctx.handle, note],
   ).catch(async () => {
-    // notes column may not exist
     await pool.query(
       `insert into sts_leads (business_id, name, contact, channel, status)
        select $1,$2,$3,'whatsapp','new'
@@ -432,6 +427,24 @@ async function handleBooking(ctx, contact, text, lang) {
       [ctx.businessId, data.name || ctx.handle, ctx.handle],
     )
   })
+  try {
+    const { createOrder } = await import('./orders.js')
+    await createOrder(ctx.businessId, {
+      channel: 'whatsapp',
+      customer_handle: ctx.handle,
+      customer_name: data.name || ctx.handle,
+      customer_phone: ctx.handle,
+      order_type: 'appointment',
+      source: 'chat_menu',
+      status: 'new',
+      notes: note,
+      summary: `${data.service || 'Meeting'} — ${data.datetime || ''}`.trim(),
+      items: [{ name: data.service || 'Meeting / appointment', qty: 1, price: null }],
+      raw_payload: data,
+    })
+  } catch (e) {
+    console.error('[orders] booking save failed:', e.message)
+  }
   await upsertContact(ctx.businessId, ctx.handle, { booking_step: 0, booking_data: {} })
   await sendText(ctx, lang === 'ar'
     ? `شكراً ${data.name || ''}! استلمنا طلبك وبيتواصل معك فريق STS قريب.`

@@ -15,6 +15,7 @@ import { CredentialModal } from './admin/CredentialModal'
 import { StsAgents } from './admin/StsAgents'
 import { AgentActivity } from './admin/AgentActivity'
 import { ChatMenu } from './admin/ChatMenu'
+import { Orders } from './admin/Orders'
 
 const LOGO = import.meta.env.BASE_URL + 'logo.png'
 
@@ -30,13 +31,14 @@ const NAV = [
   { v: 'agents', icon: 'bot', label: 'n_agents' },
   { v: 'chatmenu', icon: 'message-square', label: 'n_chatmenu' },
   { v: 'activity', icon: 'inbox', label: 'n_activity' },
+  { v: 'orders', icon: 'package', label: 'n_orders' },
   { v: 'settings', icon: 'settings', label: 'n_set' },
 ]
 
 const TITLES = {
   overview: 'n_over', requests: 'n_req', users: 'n_users', payments: 'n_pay',
   invoices: 'n_inv', plans: 'n_plans', analytics: 'n_an', agents: 'n_agents',
-  chatmenu: 'n_chatmenu', activity: 'n_activity', settings: 'n_set',
+  chatmenu: 'n_chatmenu', activity: 'n_activity', orders: 'n_orders', settings: 'n_set',
 }
 
 function AdminInner({ onLogout }) {
@@ -173,6 +175,7 @@ function AdminInner({ onLogout }) {
       case 'agents': return <StsAgents />
       case 'chatmenu': return <ChatMenu />
       case 'activity': return <AgentActivity />
+      case 'orders': return <Orders />
       case 'settings': return <Settings />
       default: return <Overview summary={summary} analytics={analytics} />
     }
