@@ -38,6 +38,132 @@ function Switch({ checked, onChange }) {
   )
 }
 
+function emptySubItem() {
+  return {
+    title_en: '',
+    title_ar: '',
+    action_type: 'static_response',
+    response_en: '',
+    response_ar: '',
+    message_en: '',
+    message_ar: '',
+    url: '',
+  }
+}
+
+const SUB_ACTION_LABELS = {
+  static_response: 'Send a reply',
+  send_link: 'Send a link',
+  start_ai: 'Start AI chat',
+  human_handoff: 'Talk to a human',
+}
+
+function SubmenuItemsEditor({ items = [], onChange }) {
+  const list = Array.isArray(items) ? items : []
+
+  function update(i, patch) {
+    onChange(list.map((row, idx) => (idx === i ? { ...row, ...patch } : row)))
+  }
+  function remove(i) {
+    onChange(list.filter((_, idx) => idx !== i))
+  }
+  function add() {
+    onChange([...list, emptySubItem()])
+  }
+  function move(i, dir) {
+    const j = i + dir
+    if (j < 0 || j >= list.length) return
+    const next = [...list]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    onChange(next)
+  }
+
+  return (
+    <div className="cm-subeditor">
+      <div className="cm-subeditor-head">
+        <div>
+          <b>Submenu options</b>
+          <p>Customers see these after they tap this menu item. No coding needed.</p>
+        </div>
+        <button type="button" className="btn btn-o" onClick={add}>
+          <Icon name="plus" size={14} /> Add option
+        </button>
+      </div>
+      {list.length === 0 && (
+        <div className="cm-subempty">No submenu options yet. Click “Add option”.</div>
+      )}
+      {list.map((row, i) => {
+        const at = row.action_type || 'static_response'
+        return (
+          <div className="cm-subitem" key={i}>
+            <div className="cm-subitem-top">
+              <span className="cm-num">{i + 1}</span>
+              <div className="cm-option-titles">
+                <input
+                  placeholder="English title"
+                  value={row.title_en || ''}
+                  onChange={(e) => update(i, { title_en: e.target.value })}
+                />
+                <input
+                  dir="rtl"
+                  placeholder="Arabic title"
+                  value={row.title_ar || ''}
+                  onChange={(e) => update(i, { title_ar: e.target.value })}
+                />
+              </div>
+              <div className="cm-option-side">
+                <button type="button" className="btn btn-o" title="Move up" onClick={() => move(i, -1)}>
+                  <Icon name="arrow-up-circle" size={14} />
+                </button>
+                <button type="button" className="btn btn-o" title="Move down" onClick={() => move(i, 1)}>
+                  <Icon name="arrow-up-circle" size={14} style={{ transform: 'rotate(180deg)' }} />
+                </button>
+                <button type="button" className="btn btn-r" title="Delete" onClick={() => remove(i)}>
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="field">
+              <label>What happens when they choose this?</label>
+              <select value={at} onChange={(e) => update(i, { action_type: e.target.value })}>
+                {Object.entries(SUB_ACTION_LABELS).map(([k, lab]) => (
+                  <option key={k} value={k}>{lab}</option>
+                ))}
+              </select>
+            </div>
+            {at === 'static_response' && (
+              <>
+                <div className="field"><label>Reply (English)</label>
+                  <textarea rows={2} value={row.response_en || ''} onChange={(e) => update(i, { response_en: e.target.value })} /></div>
+                <div className="field"><label>Reply (Arabic)</label>
+                  <textarea rows={2} dir="rtl" value={row.response_ar || ''} onChange={(e) => update(i, { response_ar: e.target.value })} /></div>
+              </>
+            )}
+            {(at === 'start_ai' || at === 'human_handoff') && (
+              <>
+                <div className="field"><label>Message (English)</label>
+                  <textarea rows={2} value={row.message_en || row.response_en || ''} onChange={(e) => update(i, { message_en: e.target.value })} /></div>
+                <div className="field"><label>Message (Arabic)</label>
+                  <textarea rows={2} dir="rtl" value={row.message_ar || row.response_ar || ''} onChange={(e) => update(i, { message_ar: e.target.value })} /></div>
+              </>
+            )}
+            {at === 'send_link' && (
+              <>
+                <div className="field"><label>Message (English)</label>
+                  <textarea rows={2} value={row.message_en || ''} onChange={(e) => update(i, { message_en: e.target.value })} /></div>
+                <div className="field"><label>Message (Arabic)</label>
+                  <textarea rows={2} dir="rtl" value={row.message_ar || ''} onChange={(e) => update(i, { message_ar: e.target.value })} /></div>
+                <div className="field"><label>Link URL</label>
+                  <input value={row.url || ''} onChange={(e) => update(i, { url: e.target.value })} placeholder="https://" /></div>
+              </>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function OptionFields({ option, onChange, onUpload }) {
   const cfg = option.config || {}
   const setCfg = (k, v) => onChange({ ...option, config: { ...cfg, [k]: v } })
@@ -144,12 +270,10 @@ function OptionFields({ option, onChange, onUpload }) {
             <input value={cfg.submenu_title_en || ''} onChange={(e) => setCfg('submenu_title_en', e.target.value)} /></div>
           <div className="field"><label>Submenu title (AR)</label>
             <input dir="rtl" value={cfg.submenu_title_ar || ''} onChange={(e) => setCfg('submenu_title_ar', e.target.value)} /></div>
-          <div className="hint">Edit submenu items as JSON list (title_en, title_ar, action_type, response_en, response_ar)</div>
-          <div className="field"><label>Submenu options (JSON)</label>
-            <textarea rows={6} value={JSON.stringify(cfg.submenu_options || [], null, 2)}
-              onChange={(e) => {
-                try { setCfg('submenu_options', JSON.parse(e.target.value || '[]')) } catch { /* keep typing */ }
-              }} /></div>
+          <SubmenuItemsEditor
+            items={cfg.submenu_options || []}
+            onChange={(submenu_options) => setCfg('submenu_options', submenu_options)}
+          />
         </>
       )}
     </div>

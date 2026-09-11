@@ -2842,9 +2842,37 @@ html[dir='rtl'] .dash th {
   .chat-menu .cm-preview-col { position: static; order: -1; }
   .chat-menu .cm-phone-body { max-height: 320px; min-height: 220px; }
 }
+.chat-menu .cm-subeditor {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed #cfd8dc;
+  border-radius: 14px;
+  background: #f8fafb;
+}
+.chat-menu .cm-subeditor-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 10px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.chat-menu .cm-subeditor-head b { display: block; color: var(--cm-ink, #111b21); }
+.chat-menu .cm-subeditor-head p {
+  margin: 4px 0 0; font-size: 12.5px; color: var(--cm-mut, #54656f);
+}
+.chat-menu .cm-subempty {
+  padding: 14px; text-align: center; color: var(--cm-mut, #54656f);
+  font-size: 13px; background: #fff; border-radius: 10px; border: 1px solid #e9edef;
+}
+.chat-menu .cm-subitem {
+  background: #fff; border: 1px solid #e9edef; border-radius: 12px;
+  padding: 12px; margin-bottom: 10px;
+}
+.chat-menu .cm-subitem-top {
+  display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px;
+}
+
 @media (max-width: 640px) {
   .chat-menu .cm-row2 { grid-template-columns: 1fr; }
-  .chat-menu .cm-option-head { flex-wrap: wrap; }
+  .chat-menu .cm-option-head,
+  .chat-menu .cm-subitem-top { flex-wrap: wrap; }
   .chat-menu .cm-option-side {
     flex-direction: row; width: 100%; justify-content: flex-end;
   }
