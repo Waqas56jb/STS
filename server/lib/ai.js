@@ -107,6 +107,7 @@ function buildSystemPrompt({ businessName, bot, kb, channel, memory, customerNam
       '{"customer_name":"","phone":"","address":"","delivery_type":"delivery|pickup","currency":"KWD","total":null,"notes":"","items":[{"name":"item name","qty":1,"price":null}]}',
       '[[/STS_ORDER]]',
       'Only include the block when an order is confirmed — not for browsing or questions. Use real item names and quantities from the chat.',
+      'IMAGES: When the customer asks what a product looks like, wants a photo/picture, or a knowledge entry marked [IMAGE id=…] matches their request, briefly reply in chat AND append one or more markers on their own lines: [[STS_IMAGE:uuid]] using the exact id from knowledge. Never invent image ids. Customers must never see the marker.',
     ].join('\n') : '',
     bot?.greeting ? `Brand greeting reference: ${bot.greeting}` : '',
     bot?.rules ? `AGENT RULES (always follow):\n${bot.rules}` : '',
@@ -130,7 +131,7 @@ export async function generateReply({
 }) {
   const [bot, kbRows, key] = await Promise.all([
     one(`select * from sts_bot_settings where business_id=$1 and channel=$2`, [businessId, botChannel(channel)]),
-    many(`select type, title, content, source_url, meta from sts_knowledge_sources where business_id=$1 and status='trained' and (${KB_SCOPE}) order by created_at desc limit 120`, [businessId, channel]),
+    many(`select id, type, title, content, source_url, meta from sts_knowledge_sources where business_id=$1 and status='trained' and (${KB_SCOPE}) order by created_at desc limit 120`, [businessId, channel]),
     resolveOpenAIKey(),
   ])
 

@@ -13,7 +13,15 @@ export function WhatsAppQrPanel({ base, onChange }) {
   async function refresh() {
     try {
       const s = await apiGet(base + '/status')
-      setSt(s)
+      setSt((prev) => {
+        if (
+          prev.status === s.status
+          && prev.qr === s.qr
+          && prev.display_number === s.display_number
+          && prev.error === s.error
+        ) return prev
+        return s
+      })
       onChange?.(s)
       return s
     } catch { return null }

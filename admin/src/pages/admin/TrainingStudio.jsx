@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { VoiceAccentPicker } from '../../components/VoiceAccentPicker'
 import { useAdminT } from '../../i18n/admin'
 import { apiGet, apiPut, apiPostAuth, apiDelete, apiUpload } from '../../lib/api'
+import { resolveApiUrl } from '../../lib/urls'
 import { useToast } from '../ui'
 import { ChatMenu } from './ChatMenu'
 
@@ -20,9 +21,20 @@ function T({ k }) {
 }
 
 const PROFILE_META = '__business_profile__'
-const KB_ACCEPT = '.pdf,.txt,.md,.csv,.docx,.xlsx,.xls,application/pdf,text/plain'
-const KB_MAX = 10 * 1024 * 1024
-const KB_ICON = { file: 'file-text', url: 'globe', qa: 'message-square' }
+const KB_ACCEPT = '.pdf,.txt,.md,.csv,.docx,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.gif,application/pdf,text/plain,image/*'
+const KB_MAX = 12 * 1024 * 1024
+const KB_ICON = { file: 'file-text', url: 'globe', qa: 'message-square', image: 'image' }
+
+function knowledgeMediaUrl(path) {
+  if (!path) return ''
+  if (/^https?:\/\//i.test(path)) return path
+  try {
+    const origin = resolveApiUrl().replace(/\/api\/?$/, '')
+    return `${origin}${path.startsWith('/') ? path : `/${path}`}`
+  } catch {
+    return path
+  }
+}
 
 const PAGE_TITLE = {
   all: 'tr_page_all',
@@ -125,10 +137,16 @@ export function TrainingStudio({
 
   async function withLearn(fn) {
     setLearn({ open: true, done: false })
+    const timeoutMs = 20000
     try {
-      await fn()
+      await Promise.race([
+        Promise.resolve().then(fn),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+      ])
       setLearn({ open: true, done: true })
-      await new Promise((r) => setTimeout(r, 1100))
+      await new Promise((r) => setTimeout(r, 900))
+    } catch {
+      /* still close overlay — never leave the UI frozen */
     } finally {
       setLearn({ open: false, done: false })
     }
@@ -489,7 +507,13 @@ export function TrainingStudio({
           </div>
           {shown.map((s) => (
             <div className="kb-item" key={s.id}>
-              <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
+              {s.type === 'image' && s.source_url ? (
+                <div className="ic kb-thumb">
+                  <img src={knowledgeMediaUrl(s.source_url)} alt="" />
+                </div>
+              ) : (
+                <div className="ic"><Icon name={KB_ICON[s.type] || 'file-text'} /></div>
+              )}
               <div className="kb-copy" onClick={() => setEditing(s)}>
                 <b>{s.title}</b>
                 <span>{snippet(s) || (s.meta && s.meta !== PROFILE_META ? s.meta : s.type)}</span>
@@ -525,7 +549,7 @@ export function TrainingStudio({
         </section>
       )}
 
-      <LearnOverlay open={learn.open} done={learn.done} agentName={agentName} cls={agentMeta.cls} t={t} />
+      <LearnOverlay open={learn.open} done={learn.done} agentName={agentName} cls={agentMeta.cls} t={t} onDismiss={() => setLearn({ open: false, done: false })} />
 
       {editing && (
         <EditModal
@@ -540,11 +564,15 @@ export function TrainingStudio({
   )
 }
 
-function LearnOverlay({ open, done, agentName, cls, t }) {
+function LearnOverlay({ open, done, agentName, cls, t, onDismiss }) {
   if (!open) return null
   return (
-    <div className={`learn-ov${done ? ' done' : ''}`}>
-      <div className={`learn-card ${cls}`}>
+    <div
+      className={`learn-ov${done ? ' done' : ''}`}
+      onClick={() => onDismiss?.()}
+      role="presentation"
+    >
+      <div className={`learn-card ${cls}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="learn-orbit">
           <span className="learn-spark s1">✦</span>
           <span className="learn-spark s2">✦</span>
@@ -554,6 +582,9 @@ function LearnOverlay({ open, done, agentName, cls, t }) {
         <b>{done ? t('tr_learned') : t('tr_learn')}</b>
         <small>{agentName}</small>
         <div className="learn-bar"><i /></div>
+        <button type="button" className="btn btn-o" style={{ marginTop: 14 }} onClick={() => onDismiss?.()}>
+          Close
+        </button>
       </div>
     </div>
   )
@@ -568,6 +599,7 @@ function EditModal({ entry, t, onClose, onSaved, update }) {
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
   const isUrl = entry.type === 'url'
   const isFile = entry.type === 'file'
+  const isImage = entry.type === 'image'
   async function save() {
     try { await update(entry.id, f); toast(); onSaved?.(); onClose() }
     catch { toast(t('save_failed')) }
@@ -577,14 +609,20 @@ function EditModal({ entry, t, onClose, onSaved, update }) {
       <div className="modal-card" style={{ maxWidth: 520 }}>
         <button className="modal-x" onClick={onClose}><Icon name="x" /></button>
         <h3 style={{ marginBottom: 12 }}><Icon name="pencil" size={16} /> <T k="kb_edit" /></h3>
-        <div className="field"><label>{isFile ? t('kb_file_title') : isUrl ? t('kb_url') : t('kb_q')}</label>
+        {isImage && entry.source_url && (
+          <div className="kb-edit-preview">
+            <img src={knowledgeMediaUrl(entry.source_url)} alt="" />
+          </div>
+        )}
+        <div className="field"><label>{isImage ? t('kb_img_title') : isFile ? t('kb_file_title') : isUrl ? t('kb_url') : t('kb_q')}</label>
           <input value={f.title} onChange={(e) => set('title', e.target.value)} />
         </div>
         {isUrl ? (
           <div className="field"><label>URL</label><input value={f.source_url} onChange={(e) => set('source_url', e.target.value)} /></div>
         ) : (
-          <div className="field"><label>{isFile ? t('kb_file_content') : t('kb_a')}</label>
-            <textarea rows={isFile ? 10 : 5} value={f.content} onChange={(e) => set('content', e.target.value)} />
+          <div className="field"><label>{isImage ? t('kb_img_caption') : isFile ? t('kb_file_content') : t('kb_a')}</label>
+            <textarea rows={isFile ? 10 : 5} value={f.content} onChange={(e) => set('content', e.target.value)}
+              placeholder={isImage ? t('kb_img_caption_ph') : undefined} />
           </div>
         )}
         <div className="field"><label><T k="kb_for" /></label>

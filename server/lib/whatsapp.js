@@ -43,6 +43,38 @@ export async function sendWhatsAppText(creds, to, body) {
   return data
 }
 
+/** Send an image (by public HTTPS link) via WhatsApp Cloud API. */
+export async function sendWhatsAppImage(creds, to, { link, caption = '' }) {
+  if (!creds?.phone_number_id || !creds?.access_token) {
+    throw new Error('WhatsApp not connected (missing phone_number_id / access_token)')
+  }
+  if (!link) throw new Error('Image link required')
+  const proof = appsecretProof(creds.access_token, creds.app_secret)
+  const url = `${GRAPH}/${creds.phone_number_id}/messages` + (proof ? `?appsecret_proof=${proof}` : '')
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${creds.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'image',
+      image: {
+        link: String(link),
+        ...(String(caption || '').trim()
+          ? { caption: String(caption).slice(0, 1024) }
+          : {}),
+      },
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error?.message || `WhatsApp image send failed (${res.status})`)
+  return data
+}
+
 /**
  * Verify Meta's `X-Hub-Signature-256` header against the RAW request body
  * using the app secret. Returns false if anything is missing or mismatched.

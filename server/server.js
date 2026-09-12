@@ -7,7 +7,8 @@ import { encryptJSON, decryptJSON, maskCredentials, maskValue } from './lib/cryp
 import { CONNECTION_SPEC, CHANNELS, isConnected, resolveWhatsAppProvider } from './lib/channels.js'
 import { conversationShape, messageShape, relTime, kwd, dmy } from './lib/shape.js'
 import { verifyMetaSignature, parseInboundMessages } from './lib/whatsapp.js'
-import { sendWhatsAppByProvider, beginQrPresence } from './lib/whatsappTransport.js'
+import { sendWhatsAppByProvider, beginQrPresence, sendKnowledgeImages } from './lib/whatsappTransport.js'
+import { extractImageMarkers } from './lib/kbPrompt.js'
 import { parseInboundInstagramMessages, sendInstagramText } from './lib/instagram.js'
 import {
   attachQrSocket, startQrSession, stopQrSession, logoutQrSession, resolveQrStatus,
@@ -30,7 +31,7 @@ import {
   emailTaken, idList, isPlatformAdmin, allCustomerBusinessIds,
 } from './lib/tenant.js'
 import multer from 'multer'
-import { extractDocumentText, isSupportedTrainingFile } from './lib/extractText.js'
+import { extractDocumentText, isSupportedTrainingFile, isImageTrainingFile, saveKnowledgeImage } from './lib/extractText.js'
 import { twimlStream, twilioCreateCall, attachVoiceBridge, attachVonageVoiceBridge } from './lib/voice.js'
 import {
   getPlatformVonage, maskVonageForAdmin, verifyVonageSignature, nccoConnectWebsocket, vonageCreateCall, upsertVonageSettings,
@@ -114,6 +115,8 @@ app.get('/api/health', wrap(async (_req, res) => {
 
 /* ---- public website widget (any origin) ---- */
 app.use('/widget', express.static(path.join(__dirname, 'public/widget')))
+/* Knowledge / chat-menu media — needed so WhatsApp Cloud can fetch image links */
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), { maxAge: '7d', fallthrough: true }))
 const widgetCors = cors({ origin: true })
 app.options('/api/widget/:key/*', widgetCors)
 app.get('/api/widget/:key/config', widgetCors, wrap(async (req, res) => {
@@ -358,6 +361,7 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
 
   // Capture WhatsApp orders from AI marker (or fallback extractor)
   let outboundReply = reply
+  let imageIds = []
   if (channel === 'whatsapp') {
     try {
       const { extractOrderMarker, saveCapturedOrder, maybeExtractOrderFromChat } = await import('./lib/orders.js')
@@ -385,10 +389,28 @@ async function handleInboundChat({ businessId, channel, customerHandle, customer
     } catch (e) {
       console.error('[orders] capture failed:', e.message)
     }
+    try {
+      const img = extractImageMarkers(outboundReply)
+      outboundReply = img.clean || outboundReply
+      imageIds = img.imageIds || []
+    } catch (e) {
+      console.error('[kb-image] marker parse failed:', e.message)
+    }
   }
 
   if (sendOutbound) {
-    try { await sendOutbound(outboundReply) } catch (e) {
+    try {
+      if (outboundReply) await sendOutbound(outboundReply)
+      if (imageIds.length && whatsappCtx) {
+        await sendKnowledgeImages({
+          businessId,
+          provider: whatsappCtx.provider,
+          creds: whatsappCtx.creds,
+          to: whatsappCtx.to,
+          imageIds,
+        })
+      }
+    } catch (e) {
       console.error(`[${channel}] AI send failed:`, e.message)
     } finally {
       await endPresence()
@@ -1193,14 +1215,33 @@ app.post('/api/knowledge', auth, wrap(async (req, res) => {
 
 const kbUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 12 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (isSupportedTrainingFile(file.originalname, file.mimetype)) return cb(null, true)
-    cb(new Error('Unsupported file type. Use PDF, DOCX, XLSX, or TXT.'))
+    cb(new Error('Unsupported file type. Use PDF, DOCX, XLSX, TXT, or an image (JPG/PNG/WEBP).'))
   },
 })
 
-async function saveUploadedKnowledge(businessId, file, { title, channel } = {}) {
+async function saveUploadedKnowledge(businessId, file, { title, channel, caption } = {}) {
+  if (isImageTrainingFile(file.originalname, file.mimetype)) {
+    const saved = await saveKnowledgeImage(businessId, file)
+    const name = String(title || file.originalname || 'Product image').slice(0, 200)
+    const desc = String(caption || '').trim()
+      || `Product / catalog photo: ${name}. Use this image when the customer asks what this product looks like, wants a photo, or asks for pictures.`
+    return one(
+      `insert into sts_knowledge_sources (business_id, type, title, content, source_url, meta, channel, status)
+       values ($1,'image',$2,$3,$4,$5,$6,'trained') returning ${KB_COLS}`,
+      [
+        businessId,
+        name,
+        desc,
+        saved.urlPath,
+        `image · ${saved.originalname}`,
+        kbChannel(channel),
+      ],
+    )
+  }
+
   const text = await extractDocumentText(file.buffer, file.originalname, file.mimetype)
   const name = String(title || file.originalname || 'Uploaded document').slice(0, 200)
   const sizeKb = Math.max(1, Math.round(file.size / 1024))

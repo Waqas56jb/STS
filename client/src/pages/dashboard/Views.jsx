@@ -95,7 +95,12 @@ export function WhatsAppView() {
             </button>
           </div>
           {provider === 'qr' ? (
-            <WhatsAppQrPanel onChange={setQrLive} />
+            <WhatsAppQrPanel onChange={(s) => {
+              setQrLive((prev) => {
+                if (prev?.status === s.status && prev?.display_number === s.display_number) return prev
+                return s
+              })
+            }} />
           ) : (
             <ConnectionForm channel="whatsapp" embedded />
           )}

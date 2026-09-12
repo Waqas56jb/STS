@@ -29,10 +29,12 @@ function tokenize(q) {
 
 /**
  * Rank knowledge rows against the customer message.
- * Returns top snippets shaped like { title, content, source_url }.
+ * Returns top snippets shaped like { id, type, title, content, source_url }.
  */
 export function selectRelevantKnowledge(kb = [], query = '', { maxSnippets = 12, maxChars = 24000 } = {}) {
   const terms = tokenize(query)
+  const qLower = String(query || '').toLowerCase()
+  const wantsPhoto = /photo|picture|pic|image|looks?\s*like|show\s*me|صورة|صور|شكل|كيف\s*شكل/.test(qLower)
   const scored = []
 
   for (const row of kb) {
@@ -55,7 +57,20 @@ export function selectRelevantKnowledge(kb = [], query = '', { maxSnippets = 12,
       // Prefer Q&A and profile slightly
       if (row.type === 'qa') score += 1
       if (row.meta === '__business_profile__') score += 2
-      if (score > 0) scored.push({ score, title, content: chunk, source_url: url })
+      if (row.type === 'image') {
+        score += 1
+        if (wantsPhoto) score += 8
+      }
+      if (score > 0) {
+        scored.push({
+          score,
+          id: row.id,
+          type: row.type,
+          title,
+          content: chunk,
+          source_url: url,
+        })
+      }
     }
   }
 
@@ -65,11 +80,17 @@ export function selectRelevantKnowledge(kb = [], query = '', { maxSnippets = 12,
   let used = 0
   const seen = new Set()
   for (const s of scored) {
-    const key = `${s.title}|${s.content.slice(0, 80)}`
+    const key = `${s.id || ''}|${s.title}|${s.content.slice(0, 80)}`
     if (seen.has(key)) continue
     seen.add(key)
     if (used + s.content.length > maxChars) continue
-    picked.push(s)
+    picked.push({
+      id: s.id,
+      type: s.type,
+      title: s.title,
+      content: s.content,
+      source_url: s.source_url,
+    })
     used += s.content.length
     if (picked.length >= maxSnippets) break
   }
@@ -77,6 +98,8 @@ export function selectRelevantKnowledge(kb = [], query = '', { maxSnippets = 12,
   // Fallback: newest docs if nothing matched (e.g. greeting "hi")
   if (!picked.length && kb.length) {
     return kb.slice(0, 8).map((k) => ({
+      id: k.id,
+      type: k.type,
       title: k.title,
       content: String(k.content || '').slice(0, 1200),
       source_url: k.source_url,
